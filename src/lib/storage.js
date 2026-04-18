@@ -7,10 +7,36 @@ self.Phia.storage = (() => {
     ITEMS: "phia.items",
   };
 
+  /**
+   * Guard that a stored item has the minimum required fields.
+   * Drops items missing id or video.videoId to prevent popup crashes.
+   * @param {any} item
+   * @returns {boolean}
+   */
+  function isValidItem(item) {
+    return (
+      item !== null &&
+      typeof item === "object" &&
+      typeof item.id === "string" &&
+      item.id.length > 0 &&
+      item.video !== null &&
+      typeof item.video === "object" &&
+      typeof item.video.videoId === "string" &&
+      item.video.videoId.length > 0
+    );
+  }
+
   /** @returns {Promise<{geminiApiKey: string|null}>} */
   async function getSettings() {
-    const result = await chrome.storage.local.get(KEYS.SETTINGS);
-    return result[KEYS.SETTINGS] || { geminiApiKey: null };
+    try {
+      const result = await chrome.storage.local.get(KEYS.SETTINGS);
+      const settings = result[KEYS.SETTINGS];
+      if (settings && typeof settings === "object") return settings;
+      return { geminiApiKey: null };
+    } catch (err) {
+      console.warn("[Phinds] getSettings failed, using default:", err.message);
+      return { geminiApiKey: null };
+    }
   }
 
   /**
@@ -26,21 +52,48 @@ self.Phia.storage = (() => {
 
   /**
    * Returns all saved items, newest first.
+   * Validates shape and drops corrupted entries — never throws.
    * @returns {Promise<SavedItem[]>}
    */
   async function getItems() {
-    const result = await chrome.storage.local.get(KEYS.ITEMS);
-    return result[KEYS.ITEMS] || [];
+    try {
+      const result = await chrome.storage.local.get(KEYS.ITEMS);
+      const raw = result[KEYS.ITEMS];
+      if (!Array.isArray(raw)) {
+        if (raw !== undefined) {
+          console.warn("[Phinds] getItems: stored value is not an array, returning []");
+        }
+        return [];
+      }
+      const valid = raw.filter((item) => {
+        if (isValidItem(item)) return true;
+        console.warn("[Phinds] getItems: dropping corrupted item:", item?.id ?? "(no id)");
+        return false;
+      });
+      return valid;
+    } catch (err) {
+      console.warn("[Phinds] getItems failed, returning []:", err.message);
+      return [];
+    }
   }
 
   /**
    * Prepends a new item to the list.
+   * Re-throws quota errors with a user-friendly message so the service worker
+   * can surface them. All other errors are also re-thrown (caller must catch).
    * @param {SavedItem} item
    * @returns {Promise<void>}
    */
   async function addItem(item) {
-    const items = await getItems();
-    await chrome.storage.local.set({ [KEYS.ITEMS]: [item, ...items] });
+    try {
+      const items = await getItems();
+      await chrome.storage.local.set({ [KEYS.ITEMS]: [item, ...items] });
+    } catch (err) {
+      if (err.message && err.message.includes("QUOTA_BYTES")) {
+        throw new Error("Storage quota exceeded — remove some saved videos.");
+      }
+      throw err;
+    }
   }
 
   /**
@@ -50,14 +103,21 @@ self.Phia.storage = (() => {
    * @returns {Promise<void>}
    */
   async function replaceItem(id, newItem) {
-    const items = await getItems();
-    const idx = items.findIndex((i) => i.id === id);
-    if (idx === -1) {
-      await chrome.storage.local.set({ [KEYS.ITEMS]: [newItem, ...items] });
-    } else {
-      const updated = [...items];
-      updated[idx] = newItem;
-      await chrome.storage.local.set({ [KEYS.ITEMS]: updated });
+    try {
+      const items = await getItems();
+      const idx = items.findIndex((i) => i.id === id);
+      if (idx === -1) {
+        await chrome.storage.local.set({ [KEYS.ITEMS]: [newItem, ...items] });
+      } else {
+        const updated = [...items];
+        updated[idx] = newItem;
+        await chrome.storage.local.set({ [KEYS.ITEMS]: updated });
+      }
+    } catch (err) {
+      if (err.message && err.message.includes("QUOTA_BYTES")) {
+        throw new Error("Storage quota exceeded — remove some saved videos.");
+      }
+      throw err;
     }
   }
 

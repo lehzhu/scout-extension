@@ -16,33 +16,57 @@ self.Phia.messaging = (() => {
 
   /**
    * Send a typed message and await the response.
+   * Always resolves — never rejects. Returns {ok: false, error: "..."} on failure.
    * @param {string} type - One of MSG.*
    * @param {any} [payload]
-   * @returns {Promise<any>}
+   * @returns {Promise<{ok: boolean, error?: string} | any>}
    */
   function sendMessage(type, payload) {
-    return new Promise((resolve, reject) => {
-      chrome.runtime.sendMessage({ type, payload }, (response) => {
-        if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
-        } else {
-          resolve(response);
-        }
-      });
+    if (typeof chrome === "undefined" || !chrome.runtime) {
+      return Promise.resolve({ ok: false, error: "chrome.runtime unavailable" });
+    }
+    return new Promise((resolve) => {
+      try {
+        chrome.runtime.sendMessage({ type, payload }, (response) => {
+          if (chrome.runtime.lastError) {
+            // Receiver doesn't exist (popup closed, SW not running, tab gone)
+            resolve({ ok: false, error: "No receiver" });
+          } else {
+            resolve(response);
+          }
+        });
+      } catch (err) {
+        resolve({ ok: false, error: err.message || "sendMessage failed" });
+      }
     });
   }
 
   /**
    * Register a handler for a specific message type.
+   * Wraps handler in try/catch — any throw or rejection replies with
+   * {ok: false, error: "..."} so the channel is never left open.
    * @param {string} type - One of MSG.*
    * @param {function(any, chrome.runtime.MessageSender): Promise<any>} handler
    */
   function onMessage(type, handler) {
+    if (typeof chrome === "undefined" || !chrome.runtime) return;
     chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.type !== type) return false;
-      handler(msg.payload, sender)
+      // Wrap handler in try/catch so sync throws are also caught
+      let resultPromise;
+      try {
+        resultPromise = handler(msg.payload, sender);
+        // If handler returned a non-promise, wrap it
+        if (!resultPromise || typeof resultPromise.then !== "function") {
+          resultPromise = Promise.resolve(resultPromise);
+        }
+      } catch (err) {
+        sendResponse({ ok: false, error: err.message || "Unknown error" });
+        return true;
+      }
+      resultPromise
         .then(sendResponse)
-        .catch((err) => sendResponse({ error: err.message }));
+        .catch((err) => sendResponse({ ok: false, error: err.message || "Unknown error" }));
       return true; // keep channel open for async response
     });
   }

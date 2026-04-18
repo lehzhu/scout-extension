@@ -6,6 +6,11 @@ self.Phia.parser = (() => {
   const GEMINI_ENDPOINT =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
 
+  const VALID_CATEGORIES = new Set([
+    "top", "bottom", "dress", "outerwear", "shoes",
+    "bag", "accessory", "beauty", "other",
+  ]);
+
   // ─── fetchTranscript ───────────────────────────────────────────────────────
 
   function extractPlayerResponse(html) {
@@ -40,39 +45,77 @@ self.Phia.parser = (() => {
   /**
    * @param {string} videoId
    * @returns {Promise<{text: string, cues: Array<{start: number, text: string}>} | null>}
+   * Returns null on any non-network failure; network errors may bubble to the caller
+   * (service worker catches them and continues without transcript).
    */
   async function fetchTranscript(videoId) {
     const watchRes = await fetch(
       `https://www.youtube.com/watch?v=${videoId}&hl=en`,
       { credentials: "omit" }
     );
-    if (!watchRes.ok) throw new Error(`YouTube fetch failed: ${watchRes.status}`);
-    const html = await watchRes.text();
+    if (!watchRes.ok) {
+      // Non-2xx from YouTube — return null rather than throwing
+      return null;
+    }
 
-    const playerResponse = extractPlayerResponse(html);
+    let html;
+    try {
+      html = await watchRes.text();
+    } catch (_) {
+      return null;
+    }
+
+    let playerResponse;
+    try {
+      playerResponse = extractPlayerResponse(html);
+    } catch (_) {
+      return null;
+    }
     if (!playerResponse) return null;
 
-    const tracks =
-      playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
-    if (!tracks || tracks.length === 0) return null;
+    let tracks;
+    try {
+      tracks = playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    } catch (_) {
+      return null;
+    }
+    if (!tracks || !Array.isArray(tracks) || tracks.length === 0) return null;
 
     const track = pickBestTrack(tracks);
     if (!track?.baseUrl) return null;
 
-    const captionRes = await fetch(`${track.baseUrl}&fmt=json3`, {
-      credentials: "omit",
-    });
-    if (!captionRes.ok) throw new Error(`Caption fetch failed: ${captionRes.status}`);
-    const data = await captionRes.json();
+    let captionRes;
+    try {
+      captionRes = await fetch(`${track.baseUrl}&fmt=json3`, { credentials: "omit" });
+    } catch (networkErr) {
+      // Let real network failures bubble so the SW can log them
+      throw networkErr;
+    }
+    if (!captionRes.ok) {
+      // Non-2xx caption fetch — return null gracefully
+      return null;
+    }
+
+    let data;
+    try {
+      data = await captionRes.json();
+    } catch (_) {
+      // Malformed JSON3 caption data
+      return null;
+    }
 
     const cues = [];
     const parts = [];
-    for (const event of data.events || []) {
-      if (!event.segs) continue;
-      const cueText = event.segs.map((s) => s.utf8 || "").join("").trim();
-      if (!cueText) continue;
-      cues.push({ start: (event.tStartMs || 0) / 1000, text: cueText });
-      parts.push(cueText);
+    try {
+      for (const event of data.events || []) {
+        if (!event.segs) continue;
+        const cueText = event.segs.map((s) => s.utf8 || "").join("").trim();
+        if (!cueText) continue;
+        cues.push({ start: (event.tStartMs || 0) / 1000, text: cueText });
+        parts.push(cueText);
+      }
+    } catch (_) {
+      return null;
     }
 
     let text = parts.join(" ");
@@ -121,8 +164,37 @@ Transcript: ${transcript}`;
   }
 
   /**
+   * Validate and coerce a raw product object from Gemini into the Product shape.
+   * Returns null if the item is unsalvageable (missing required fields).
+   * @param {any} p
+   * @returns {import("../lib/types").Product | null}
+   */
+  function coerceProduct(p) {
+    if (p === null || typeof p !== "object") return null;
+    if (typeof p.name !== "string" || p.name.trim() === "") return null;
+    if (typeof p.searchQuery !== "string" || p.searchQuery.trim() === "") return null;
+    if (typeof p.confidence !== "number") return null;
+
+    const category = VALID_CATEGORIES.has(p.category) ? p.category : "other";
+    const brand = typeof p.brand === "string" ? p.brand : null;
+    const timestamp =
+      typeof p.timestamp === "string" && p.timestamp.trim() !== "" ? p.timestamp.trim() : null;
+
+    return {
+      name: p.name.trim(),
+      brand,
+      category,
+      searchQuery: p.searchQuery.trim(),
+      confidence: p.confidence,
+      timestamp,
+    };
+  }
+
+  /**
    * @param {{videoMeta: import("../lib/types").VideoMeta, transcriptText: string|null, apiKey: string}}
    * @returns {Promise<import("../lib/types").Product[]>}
+   * Throws surfaceable errors (Gemini API errors, malformed JSON, timeout).
+   * The service worker catches these and saves the item with status "error".
    */
   async function extractProducts({ videoMeta, transcriptText, apiKey }) {
     const prompt = buildPrompt({
@@ -132,19 +204,34 @@ Transcript: ${transcript}`;
       transcriptText,
     });
 
-    const res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ role: "user", parts: [{ text: prompt }] }],
-        generationConfig: {
-          responseMimeType: "application/json",
-          responseSchema: RESPONSE_SCHEMA,
-          temperature: 0.3,
-          maxOutputTokens: 4096,
-        },
-      }),
-    });
+    // 45-second timeout via AbortController
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 45000);
+
+    let res;
+    try {
+      res = await fetch(`${GEMINI_ENDPOINT}?key=${apiKey}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ role: "user", parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+            responseSchema: RESPONSE_SCHEMA,
+            temperature: 0.3,
+            maxOutputTokens: 4096,
+          },
+        }),
+        signal: controller.signal,
+      });
+    } catch (fetchErr) {
+      clearTimeout(timeoutId);
+      if (fetchErr.name === "AbortError") {
+        throw new Error("Gemini request timed out after 45s — check your connection and try again.");
+      }
+      throw fetchErr;
+    }
+    clearTimeout(timeoutId);
 
     if (!res.ok) {
       let errMsg = `Gemini error ${res.status}`;
@@ -155,7 +242,12 @@ Transcript: ${transcript}`;
       throw new Error(errMsg);
     }
 
-    const body = await res.json();
+    let body;
+    try {
+      body = await res.json();
+    } catch (_) {
+      throw new Error("Gemini returned malformed JSON response body");
+    }
 
     if (body?.promptFeedback?.blockReason) {
       throw new Error(`Gemini blocked request: ${body.promptFeedback.blockReason}`);
@@ -164,23 +256,41 @@ Transcript: ${transcript}`;
       throw new Error("Gemini returned no candidates");
     }
 
-    const raw = body.candidates[0].content.parts[0].text;
-    let cleaned = raw.trim();
+    let raw;
+    try {
+      raw = body.candidates[0].content.parts[0].text;
+    } catch (_) {
+      throw new Error("Gemini response missing expected text field");
+    }
+
+    let cleaned = typeof raw === "string" ? raw.trim() : "";
     if (cleaned.startsWith("```")) {
       cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
     }
-    let products;
+
+    let parsed;
     try {
-      products = JSON.parse(cleaned);
+      parsed = JSON.parse(cleaned);
     } catch (err) {
       throw new Error(`Gemini returned malformed JSON: ${err.message}`);
     }
-    if (!Array.isArray(products)) {
+
+    if (!Array.isArray(parsed)) {
       throw new Error("Gemini response was not an array");
     }
-    return products
-      .filter((p) => typeof p?.confidence === "number" && p.confidence >= 0.4)
+
+    // Validate and coerce each item; drop invalid ones
+    const beforeFilter = parsed.length;
+    const products = parsed
+      .map(coerceProduct)
+      .filter((p) => p !== null && p.confidence >= 0.4)
       .slice(0, 25);
+
+    if (beforeFilter > 0 && products.length === 0) {
+      console.warn("[Phinds] extractProducts: all", beforeFilter, "items were filtered out after validation");
+    }
+
+    return products;
   }
 
   return { fetchTranscript, extractProducts };
