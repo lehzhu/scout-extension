@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Phia YouTube</title>
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header class="header">
+    <span class="logo">phia<span class="logo-accent"> yt</span></span>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab tab--active" id="tab-list" role="tab" aria-selected="true" aria-controls="panel-list">
+      Shopping List
+    </button>
+    <button class="tab" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings">
+      Settings
+    </button>
+  </nav>
+
+  <main>
+    <!-- Shopping List panel -->
+    <section id="panel-list" class="panel panel--active" role="tabpanel" aria-labelledby="tab-list">
+      <div id="list">
+        <p class="empty-state">No saved videos yet.</p>
+      </div>
+    </section>
+
+    <!-- Settings panel -->
+    <section id="panel-settings" class="panel" role="tabpanel" aria-labelledby="tab-settings" hidden>
+      <div class="settings-form">
+        <label class="field-label" for="api-key">Gemini API Key</label>
+        <input
+          type="password"
+          id="api-key"
+          class="field-input"
+          placeholder="Paste your API key here"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <button id="save-key" class="btn btn--primary">Save</button>
+        <p id="save-status" class="save-status" aria-live="polite"></p>
+      </div>
+    </section>
+  </main>
+
+  <script src="../lib/types.js"></script>
+  <script src="../lib/storage.js"></script>
+  <script src="../lib/messaging.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
