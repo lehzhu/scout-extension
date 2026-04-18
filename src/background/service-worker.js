@@ -130,10 +130,16 @@ async function handleRetryItem({ id }) {
   const items = await Phia.storage.getItems();
   const item = items.find((i) => i.id === id);
   if (!item) return { ok: false, error: "Item not found" };
-  await Phia.storage.removeItem(id);
+
+  const settings = await Phia.storage.getSettings();
+  if (!settings.geminiApiKey) {
+    return { ok: false, error: "Gemini API key not set. Open Settings to add one." };
+  }
+
   const videoMeta = item.video;
-  const newId = `${videoMeta.videoId}-${Date.now()}`;
-  // Re-run extraction with a fresh ID; no tab progress for popup-triggered retry
+
+  // Set inFlight before removing the old error card so the pending card renders
+  // immediately — avoids a blank-list flash between remove and extraction start.
   inFlight.set(videoMeta.videoId, {
     videoMeta,
     startedAt: Date.now(),
@@ -141,40 +147,11 @@ async function handleRetryItem({ id }) {
   });
   broadcastInFlight();
 
-  const settings = await Phia.storage.getSettings();
-  const apiKey = settings.geminiApiKey;
-  if (!apiKey) {
-    inFlight.delete(videoMeta.videoId);
-    broadcastInFlight();
-    return { ok: false, error: "Gemini API key not set" };
-  }
+  await Phia.storage.removeItem(id);
 
-  let transcript = null;
-  try { transcript = await Phia.parser.fetchTranscript(videoMeta.videoId); } catch (_) {}
+  // Fire-and-forget: the popup updates via INFLIGHT_UPDATE and storage.onChanged.
+  // Returning immediately keeps the retry button's promise from hanging 3-10s.
+  runExtraction({ ...videoMeta, savedAt: Date.now() }, null, null).catch(() => {});
 
-  inFlight.set(videoMeta.videoId, {
-    videoMeta,
-    startedAt: inFlight.get(videoMeta.videoId).startedAt,
-    status: "extracting-products",
-  });
-  broadcastInFlight();
-
-  let products;
-  try {
-    products = await Phia.parser.extractProducts({
-      videoMeta,
-      transcriptText: transcript?.text ?? null,
-      apiKey,
-    });
-  } catch (err) {
-    inFlight.delete(videoMeta.videoId);
-    broadcastInFlight();
-    await Phia.storage.addItem({ id: newId, video: videoMeta, products: [], status: "error", error: err.message });
-    return { ok: false, error: err.message };
-  }
-
-  inFlight.delete(videoMeta.videoId);
-  broadcastInFlight();
-  await Phia.storage.addItem({ id: newId, video: videoMeta, products, status: "ready", error: null });
-  return { ok: true, count: products.length };
+  return { ok: true };
 }

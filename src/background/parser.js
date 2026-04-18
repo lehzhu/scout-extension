@@ -165,9 +165,21 @@ Transcript: ${transcript}`;
     }
 
     const raw = body.candidates[0].content.parts[0].text;
-    const products = JSON.parse(raw);
+    let cleaned = raw.trim();
+    if (cleaned.startsWith("```")) {
+      cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
+    }
+    let products;
+    try {
+      products = JSON.parse(cleaned);
+    } catch (err) {
+      throw new Error(`Gemini returned malformed JSON: ${err.message}`);
+    }
+    if (!Array.isArray(products)) {
+      throw new Error("Gemini response was not an array");
+    }
     return products
-      .filter((p) => p.confidence >= 0.4)
+      .filter((p) => typeof p?.confidence === "number" && p.confidence >= 0.4)
       .slice(0, 25);
   }
 
