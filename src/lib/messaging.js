@@ -4,11 +4,14 @@ self.Phia = self.Phia || {};
 self.Phia.messaging = (() => {
   /** Message type constants */
   const MSG = {
-    SAVE_VIDEO: "SAVE_VIDEO",       // content → background | payload: VideoMeta
-    GET_ITEMS: "GET_ITEMS",         // popup → background   | no payload
-    REMOVE_ITEM: "REMOVE_ITEM",     // popup → background   | payload: {id}
-    CLEAR_ITEMS: "CLEAR_ITEMS",     // popup → background   | no payload
-    SAVE_PROGRESS: "SAVE_PROGRESS", // background → content | payload: {status, message?}
+    SAVE_VIDEO: "SAVE_VIDEO",           // content → background | payload: VideoMeta
+    GET_ITEMS: "GET_ITEMS",             // popup → background   | no payload
+    REMOVE_ITEM: "REMOVE_ITEM",         // popup → background   | payload: {id}
+    CLEAR_ITEMS: "CLEAR_ITEMS",         // popup → background   | no payload
+    SAVE_PROGRESS: "SAVE_PROGRESS",     // background → content | payload: {status, message?}
+    RETRY_ITEM: "RETRY_ITEM",           // popup → background   | payload: {id}
+    GET_INFLIGHT: "GET_INFLIGHT",       // popup → background   | no payload
+    INFLIGHT_UPDATE: "INFLIGHT_UPDATE", // background → popup   | payload: InFlightItem[]
   };
 
   /**

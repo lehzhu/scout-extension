@@ -45,7 +45,6 @@
         if (target) target.hidden = false;
       });
     });
-    // Show first panel, hide rest
     panels.forEach((p, i) => { p.hidden = i !== 0; });
   }
 
@@ -71,7 +70,7 @@
       try {
         await self.Phia.storage.setSettings({ geminiApiKey: key || null });
         hint.textContent = key ? "" : "Required to extract products from videos.";
-        status.textContent = "Saved ✓";
+        status.textContent = "Saved \u2713";
         status.className = "save-status save-status--ok";
         setTimeout(() => {
           status.textContent = "";
@@ -92,7 +91,7 @@
 
     const bullet = document.createElement("span");
     bullet.className = "product-row__bullet";
-    bullet.textContent = "▸";
+    bullet.textContent = "\u25b8";
 
     const name = document.createElement("span");
     name.className = "product-row__name";
@@ -110,11 +109,46 @@
     if (product.brand) {
       const brand = document.createElement("span");
       brand.className = "product-row__brand";
-      brand.textContent = "— " + product.brand;
+      brand.textContent = "\u2014 " + product.brand;
       row.appendChild(brand);
     }
     row.appendChild(buy);
     return row;
+  }
+
+  // ── Pending card (in-flight save) ───────────────────────────────────────
+
+  const STATUS_LABEL = {
+    "fetching-transcript": "Reading transcript\u2026",
+    "extracting-products": "Finding products\u2026",
+  };
+
+  function buildPendingCard({ videoMeta, status }) {
+    const card = document.createElement("div");
+    card.className = "video-card video-card--pending";
+    const header = document.createElement("div");
+    header.className = "video-card__header";
+    const img = document.createElement("img");
+    img.className = "video-card__thumb";
+    img.src = videoMeta.thumbnailUrl || "";
+    img.alt = "";
+    img.referrerPolicy = "no-referrer";
+    const meta = document.createElement("div");
+    meta.className = "video-card__meta";
+    const titleEl = document.createElement("div");
+    titleEl.className = "video-card__title";
+    titleEl.textContent = videoMeta.title || "Saving video\u2026";
+    const pill = document.createElement("div");
+    pill.className = "pending-pill";
+    pill.innerHTML =
+      `<span class="pending-dots"><span></span><span></span><span></span></span>` +
+      `<span class="pending-pill__label">${escapeHtml(STATUS_LABEL[status] || "Saving\u2026")}</span>`;
+    meta.appendChild(titleEl);
+    meta.appendChild(pill);
+    header.appendChild(img);
+    header.appendChild(meta);
+    card.appendChild(header);
+    return card;
   }
 
   // ── Single video card ───────────────────────────────────────────────────
@@ -124,43 +158,38 @@
     const card = document.createElement("div");
     card.className = "video-card";
 
-    // Header: thumb + meta
+    // Header
     const header = document.createElement("div");
     header.className = "video-card__header";
-
     const img = document.createElement("img");
     img.className = "video-card__thumb";
     img.src = video.thumbnailUrl;
     img.alt = "";
     img.referrerPolicy = "no-referrer";
-
     const meta = document.createElement("div");
     meta.className = "video-card__meta";
-
     const titleEl = document.createElement("div");
     titleEl.className = "video-card__title";
     titleEl.textContent = video.title;
-
     const subEl = document.createElement("div");
     subEl.className = "video-card__sub";
     const count = products.length;
     subEl.textContent =
-      (video.channel ? video.channel + " · " : "") +
+      (video.channel ? video.channel + " \u00b7 " : "") +
       (count === 1 ? "1 product" : count + " products");
-
     meta.appendChild(titleEl);
     meta.appendChild(subEl);
     header.appendChild(img);
     header.appendChild(meta);
     card.appendChild(header);
 
-    // Status: error
     if (status === "error") {
       const notice = document.createElement("div");
       notice.className = "notice notice--error";
       const retryLabel = document.createElement("span");
-      retryLabel.textContent = "⚠ Could not extract products";
+      retryLabel.textContent = "\u26a0 Could not extract products";
       notice.appendChild(retryLabel);
+      card.appendChild(notice);
       if (error) {
         const toggle = document.createElement("span");
         toggle.style.cssText = "cursor:pointer;text-decoration:underline;margin-left:6px;font-size:11px";
@@ -170,14 +199,10 @@
         detail.textContent = error;
         toggle.addEventListener("click", () => detail.classList.toggle("error-detail--open"));
         notice.appendChild(toggle);
-        card.appendChild(notice);
         card.appendChild(detail);
-      } else {
-        card.appendChild(notice);
       }
     }
 
-    // Products section
     if (status !== "error") {
       if (products.length === 0) {
         const none = document.createElement("p");
@@ -187,46 +212,47 @@
       } else {
         const section = document.createElement("div");
         const SHOW = 3;
-        const visible = products.slice(0, SHOW);
-        const hidden  = products.slice(SHOW);
-
         const label = document.createElement("div");
         label.className = "section-label";
         label.textContent = "Products";
         section.appendChild(label);
-
         const list = document.createElement("div");
         list.className = "products-list";
-        visible.forEach((p) => list.appendChild(buildProductRow(p)));
-
-        // Hidden rows (rendered but display:none until expanded)
-        const hiddenContainer = document.createElement("div");
-        hiddenContainer.style.display = "none";
-        hidden.forEach((p) => hiddenContainer.appendChild(buildProductRow(p)));
-
-        if (hidden.length > 0) {
+        products.slice(0, SHOW).forEach((p) => list.appendChild(buildProductRow(p)));
+        const extra = products.slice(SHOW);
+        if (extra.length > 0) {
+          const hiddenContainer = document.createElement("div");
+          hiddenContainer.style.display = "none";
+          extra.forEach((p) => hiddenContainer.appendChild(buildProductRow(p)));
           const more = document.createElement("div");
           more.className = "product-row product-row--more";
-          more.textContent = `+ ${hidden.length} more`;
+          more.textContent = `+ ${extra.length} more`;
           more.addEventListener("click", () => {
-            hiddenContainer.style.display = "flex";
-            hiddenContainer.style.flexDirection = "column";
-            hiddenContainer.style.gap = "4px";
+            hiddenContainer.style.cssText = "display:flex;flex-direction:column;gap:4px";
             more.style.display = "none";
           });
           list.appendChild(more);
           list.appendChild(hiddenContainer);
         }
-
         section.appendChild(list);
         card.appendChild(section);
       }
     }
 
-    // Footer actions
     const actions = document.createElement("div");
     actions.className = "card-actions";
-
+    if (status === "error") {
+      const retryBtn = document.createElement("button");
+      retryBtn.className = "btn-ghost btn-ghost--retry";
+      retryBtn.type = "button";
+      retryBtn.textContent = "Retry";
+      retryBtn.addEventListener("click", async () => {
+        retryBtn.disabled = true;
+        retryBtn.textContent = "Retrying\u2026";
+        await sendMessage(MSG.RETRY_ITEM, { id });
+      });
+      actions.appendChild(retryBtn);
+    }
     const removeBtn = document.createElement("button");
     removeBtn.className = "btn-ghost btn-ghost--danger";
     removeBtn.type = "button";
@@ -236,19 +262,33 @@
       card.style.pointerEvents = "none";
       await sendMessage(MSG.REMOVE_ITEM, { id });
     });
-
     const openLink = document.createElement("a");
     openLink.className = "btn-ghost";
     openLink.href = video.url;
     openLink.target = "_blank";
     openLink.rel = "noopener noreferrer";
     openLink.innerHTML = "Open video " + EXTERNAL_SVG;
-
     actions.appendChild(removeBtn);
     actions.appendChild(openLink);
     card.appendChild(actions);
 
     return card;
+  }
+
+  // ── Pending section ─────────────────────────────────────────────────────
+
+  function renderPending(container, inFlightItems) {
+    container.innerHTML = "";
+    if (!inFlightItems || inFlightItems.length === 0) {
+      container.hidden = true;
+      return;
+    }
+    container.hidden = false;
+    const label = document.createElement("div");
+    label.className = "section-label";
+    label.textContent = "Saving";
+    container.appendChild(label);
+    inFlightItems.forEach((item) => container.appendChild(buildPendingCard(item)));
   }
 
   // ── Shopping list ───────────────────────────────────────────────────────
@@ -289,8 +329,15 @@
 
   setupTabs();
   await renderSettings();
+  const pendingSection = document.getElementById("pending-section");
+  let inFlightItems = [];
+  try { inFlightItems = await sendMessage(MSG.GET_INFLIGHT) || []; } catch (_) {}
+  renderPending(pendingSection, inFlightItems);
   await renderList();
 
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (msg.type === MSG.INFLIGHT_UPDATE) renderPending(pendingSection, msg.payload || []);
+  });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes["phia.items"]) renderList();
   });
