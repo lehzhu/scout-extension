@@ -1,4 +1,4 @@
-// Phia YouTube — background service worker
+// Phinds — background service worker
 importScripts(
   "../lib/types.js",
   "../lib/storage.js",
@@ -23,7 +23,7 @@ function broadcastInFlight() {
 
 // ─── Message handlers ─────────────────────────────────────────────────────────
 
-chrome.runtime.onInstalled.addListener(() => console.log("[Phia] installed"));
+chrome.runtime.onInstalled.addListener(() => console.log("[Phinds] installed"));
 
 Phia.messaging.onMessage(MSG.SAVE_VIDEO,    handleSaveVideo);
 Phia.messaging.onMessage(MSG.GET_ITEMS,     handleGetItems);
@@ -49,7 +49,7 @@ async function runExtraction(videoMeta, existingId, tabId) {
   const settings = await Phia.storage.getSettings();
   const apiKey = settings.geminiApiKey;
   if (!apiKey) {
-    const msg = "Gemini API key not set. Open Phia popup → Settings to add one.";
+    const msg = "Gemini API key not set. Open Phinds popup → Settings to add one.";
     if (tabId) sendProgress(tabId, "error", msg);
     return { ok: false, error: msg };
   }

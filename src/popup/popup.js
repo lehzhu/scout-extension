@@ -1,5 +1,5 @@
-// Phia YouTube popup — Shopping list + Settings
-(async function phiaPopup() {
+// Phinds popup — Shopping list + Settings
+(async function phindsPopup() {
   "use strict";
 
   const { MSG, sendMessage } = self.Phia.messaging;
