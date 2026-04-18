@@ -399,13 +399,6 @@
       items = [];
     }
 
-    // Fetch in-flight count to decide which empty state to show
-    let inFlightCount = 0;
-    try {
-      const inFlightItems = await sendMessage(MSG.GET_INFLIGHT);
-      inFlightCount = Array.isArray(inFlightItems) ? inFlightItems.length : 0;
-    } catch (_) {}
-
     if (!Array.isArray(items) || items.length === 0) {
       // Choose empty-state message based on context
       const emptyHint = !_apiKeySet
