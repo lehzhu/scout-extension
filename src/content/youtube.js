@@ -36,10 +36,10 @@
   // ─── Button state helpers ─────────────────────────────────────────────────
 
   const BTN_STYLES = {
-    default: { background: "#e8344a", label: "★ Save to Phia", disabled: false },
-    saving:  { background: "#e8344a", label: "Saving…",         disabled: true  },
-    saved:   { background: "#1f8f4e", label: "✓ Saved",          disabled: true  },
-    error:   { background: "#b3261e", label: "⚠ Error — retry",  disabled: false },
+    default: { background: "#0F0F0F", label: "★ Save to Phia", disabled: false },
+    saving:  { background: "#0F0F0F", label: "Saving…",         disabled: true  },
+    saved:   { background: "#22A06B", label: "✓ Saved",          disabled: true  },
+    error:   { background: "#F0336C", label: "⚠ Error — retry",  disabled: false },
   };
 
   function applyBtnState(btn, state, customLabel) {
@@ -56,13 +56,13 @@
 
     // Inline styles — avoids CSS specificity fights with YouTube
     Object.assign(btn.style, {
-      background: "#e8344a",
-      color: "#fff",
-      padding: "8px 14px",
-      borderRadius: "18px",
+      background: "#0F0F0F",
+      color: "#FFFFFF",
+      padding: "10px 16px",
+      borderRadius: "12px",
       fontWeight: "600",
       fontSize: "13px",
-      fontFamily: "inherit",
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif',
       border: "0",
       cursor: "pointer",
       margin: "8px 0",
@@ -74,7 +74,7 @@
     btn.textContent = "★ Save to Phia";
 
     btn.addEventListener("mouseenter", () => {
-      if (!btn.disabled) btn.style.background = "#d62d41";
+      if (!btn.disabled) btn.style.background = "#2A2A2A";
     });
     btn.addEventListener("mouseleave", () => {
       if (!btn.disabled) btn.style.background = BTN_STYLES.default.background;

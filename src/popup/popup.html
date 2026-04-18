@@ -3,45 +3,54 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Phia YouTube</title>
+  <title>phia for YouTube</title>
   <link rel="stylesheet" href="popup.css" />
 </head>
 <body>
   <header class="header">
-    <span class="logo">phia<span class="logo-accent"> yt</span></span>
+    <div class="phia-wordmark">phia</div>
+    <div class="phia-sublabel">for youtube</div>
   </header>
 
   <nav class="tabs" role="tablist">
-    <button class="tab tab--active" id="tab-list" role="tab" aria-selected="true" aria-controls="panel-list">
-      Shopping List
+    <button class="tab tab--active" id="tab-list" role="tab"
+            aria-selected="true" aria-controls="panel-list">
+      Shopping list
     </button>
-    <button class="tab" id="tab-settings" role="tab" aria-selected="false" aria-controls="panel-settings">
+    <button class="tab" id="tab-settings" role="tab"
+            aria-selected="false" aria-controls="panel-settings">
       Settings
     </button>
   </nav>
 
   <main>
     <!-- Shopping List panel -->
-    <section id="panel-list" class="panel panel--active" role="tabpanel" aria-labelledby="tab-list">
-      <div id="list">
-        <p class="empty-state">No saved videos yet.</p>
-      </div>
+    <section id="panel-list" class="panel" role="tabpanel" aria-labelledby="tab-list">
+      <div id="list"></div>
     </section>
 
     <!-- Settings panel -->
-    <section id="panel-settings" class="panel" role="tabpanel" aria-labelledby="tab-settings" hidden>
-      <div class="settings-form">
-        <label class="field-label" for="api-key">Gemini API Key</label>
-        <input
-          type="password"
-          id="api-key"
-          class="field-input"
-          placeholder="Paste your API key here"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <button id="save-key" class="btn btn--primary">Save</button>
-        <p id="save-status" class="save-status" aria-live="polite"></p>
+    <section id="panel-settings" class="panel" role="tabpanel"
+             aria-labelledby="tab-settings" hidden>
+      <div class="settings-panel">
+        <form class="settings-form" id="settings-form" autocomplete="off">
+          <div>
+            <label class="field-label" for="api-key">Gemini API Key</label>
+            <p class="field-hint" id="key-hint"></p>
+            <input type="password" id="api-key" class="field-input"
+                   placeholder="Paste your Gemini API key"
+                   spellcheck="false" />
+          </div>
+          <button type="submit" id="save-key" class="btn-primary">Save</button>
+          <p id="save-status" class="save-status" aria-live="polite"></p>
+          <p class="key-help">
+            Get a free key at
+            <a href="https://aistudio.google.com/app/apikey"
+               target="_blank" rel="noopener noreferrer">
+              Google AI Studio
+            </a>.
+          </p>
+        </form>
       </div>
     </section>
   </main>
