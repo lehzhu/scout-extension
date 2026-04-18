@@ -36,7 +36,7 @@
   // ─── Button state helpers ─────────────────────────────────────────────────
 
   const BTN_STYLES = {
-    default: { background: "#0F0F0F", label: "★ Save to Phia", disabled: false },
+    default: { background: "#0F0F0F", label: "★ Save to Phinds", disabled: false },
     saving:  { background: "#0F0F0F", label: "Saving…",         disabled: true  },
     saved:   { background: "#22A06B", label: "✓ Saved",          disabled: true  },
     error:   { background: "#F0336C", label: "⚠ Error — retry",  disabled: false },
@@ -71,7 +71,7 @@
       transition: "background 0.15s",
     });
 
-    btn.textContent = "★ Save to Phia";
+    btn.textContent = "★ Save to Phinds";
 
     btn.addEventListener("mouseenter", () => {
       if (!btn.disabled) btn.style.background = "#2A2A2A";
