@@ -14,10 +14,13 @@ const inFlight = new Map();
 
 function broadcastInFlight() {
   try {
-    chrome.runtime.sendMessage({
+    const p = chrome.runtime.sendMessage({
       type: MSG.INFLIGHT_UPDATE,
       payload: Array.from(inFlight.values()),
     });
+    // MV3 returns a Promise that rejects when no receiver is listening
+    // (e.g. popup closed). Swallow that — the broadcast is best-effort.
+    if (p && typeof p.catch === "function") p.catch(() => {});
   } catch (_) {}
 }
 
@@ -52,10 +55,11 @@ Scout.messaging.onMessage(MSG.GET_INFLIGHT,  handleGetInFlight);
 
 function sendProgress(tabId, status, message) {
   try {
-    chrome.tabs.sendMessage(tabId, {
+    const p = chrome.tabs.sendMessage(tabId, {
       type: MSG.SAVE_PROGRESS,
       payload: { status, message },
     });
+    if (p && typeof p.catch === "function") p.catch(() => {});
   } catch (_) {}
 }
 
