@@ -516,12 +516,21 @@
         await doSave(false);
       });
 
-      // Preferred: append *inside* #owner as the last child so we sit flush
-      // next to Subscribe. Placing us as a sibling of #owner instead pushes
-      // us into the flex gap between #owner and #actions, which on some
-      // videos drifts to the far right of the row.
+      // Preferred: insert immediately after YouTube's Subscribe button so we
+      // share its exact vertical center line. Falling back to appending inside
+      // #owner can land us next to the avatar (taller than Subscribe), which
+      // shifts our 36px pill upward relative to Subscribe.
       try {
-        if (owner) {
+        const subscribeBtn = owner
+          ? (owner.querySelector("#subscribe-button") ||
+             owner.querySelector("ytd-subscribe-button-renderer") ||
+             owner.querySelector("yt-subscribe-button-view-model") ||
+             owner.querySelector("tp-yt-paper-button#subscribe"))
+          : null;
+
+        if (subscribeBtn && subscribeBtn.parentNode) {
+          subscribeBtn.parentNode.insertBefore(btn, subscribeBtn.nextSibling);
+        } else if (owner) {
           owner.appendChild(btn);
         } else if (titleAnchor) {
           const h1 = titleAnchor.querySelector("h1") || titleAnchor;
