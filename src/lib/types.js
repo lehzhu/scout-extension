@@ -27,4 +27,16 @@
  * @property {Product[]} products
  * @property {"pending" | "ready" | "error"} status
  * @property {string|null} error
+ * @property {"gemini"|"openrouter"|"openai"|"heuristic"|null} [extractedWith]
+ */
+
+/**
+ * @typedef {Object} Settings
+ * @property {"none"|"gemini"|"openrouter"|"openai"} provider
+ * @property {string|null} geminiApiKey
+ * @property {string|null} openrouterApiKey
+ * @property {string|null} openaiApiKey
+ * @property {string|null} geminiModel      - null = use default
+ * @property {string|null} openrouterModel  - null = use default
+ * @property {string|null} openaiModel      - null = use default
  */

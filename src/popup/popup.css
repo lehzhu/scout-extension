@@ -310,6 +310,52 @@ main { flex: 1; overflow-y: auto; background: var(--scout-surface-alt); }
 .btn-ghost--retry { color: var(--scout-accent-orange); }
 .btn-ghost--retry:hover { color: var(--scout-accent-orange); background: rgba(255,122,26,0.08); }
 
+/* ── Provider picker ─────────────────────────────────────────────────────── */
+.provider-picker {
+  display: flex;
+  gap: 4px;
+}
+
+.provider-btn {
+  flex: 1;
+  padding: 6px 4px;
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--scout-text-secondary);
+  background: var(--scout-chip-bg);
+  border: 1px solid var(--scout-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.13s;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.provider-btn:hover {
+  color: var(--scout-text);
+  background: var(--scout-chip-bg-hover);
+}
+
+.provider-btn--active {
+  color: var(--scout-cta-text);
+  background: var(--scout-cta);
+  border-color: var(--scout-cta);
+}
+
+/* ── Field group ─────────────────────────────────────────────────────────── */
+.field-group {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.field-optional {
+  font-weight: 400;
+  color: var(--scout-text-tertiary);
+  font-size: 11px;
+}
+
 /* ── Settings ────────────────────────────────────────────────────────────── */
 .settings-panel {
   background: var(--scout-surface);
@@ -433,4 +479,14 @@ main { flex: 1; overflow-y: auto; background: var(--scout-surface-alt); }
 @keyframes scout-dot-bounce {
   0%, 80%, 100% { transform: scale(0.6); opacity: 0.5; }
   40%            { transform: scale(1);   opacity: 1; }
+}
+
+/* ── Export bar ──────────────────────────────────────────────────────────── */
+.export-bar {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--scout-border);
+  margin-top: 4px;
 }

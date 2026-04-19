@@ -26,16 +26,31 @@ self.Scout.storage = (() => {
     );
   }
 
-  /** @returns {Promise<{geminiApiKey: string|null}>} */
+  /** @returns {Settings} */
+  function normalizeSettings(raw) {
+    const defaults = {
+      provider: "none",
+      geminiApiKey: null,
+      openrouterApiKey: null,
+      openaiApiKey: null,
+      geminiModel: null,
+      openrouterModel: null,
+      openaiModel: null,
+    };
+    const s = Object.assign({}, defaults, raw && typeof raw === "object" ? raw : {});
+    // Backward compat: infer provider from legacy geminiApiKey field
+    if (!raw?.provider && s.geminiApiKey) s.provider = "gemini";
+    return s;
+  }
+
+  /** @returns {Promise<Settings>} */
   async function getSettings() {
     try {
       const result = await chrome.storage.local.get(KEYS.SETTINGS);
-      const settings = result[KEYS.SETTINGS];
-      if (settings && typeof settings === "object") return settings;
-      return { geminiApiKey: null };
+      return normalizeSettings(result[KEYS.SETTINGS]);
     } catch (err) {
       console.warn("[Scout] getSettings failed, using default:", err.message);
-      return { geminiApiKey: null };
+      return normalizeSettings(null);
     }
   }
 

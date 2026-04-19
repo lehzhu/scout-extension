@@ -35,22 +35,35 @@
              aria-labelledby="tab-settings" hidden>
       <div class="settings-panel">
         <form class="settings-form" id="settings-form" autocomplete="off">
-          <div>
-            <label class="field-label" for="api-key">Gemini API Key</label>
-            <p class="field-hint" id="key-hint"></p>
-            <input type="password" id="api-key" class="field-input"
-                   placeholder="Paste your Gemini API key"
-                   spellcheck="false" />
+
+          <div class="field-group">
+            <div class="field-label">Provider</div>
+            <div class="provider-picker" id="provider-picker" role="group" aria-label="Select provider">
+              <button type="button" class="provider-btn" data-provider="none">None</button>
+              <button type="button" class="provider-btn" data-provider="gemini">Gemini</button>
+              <button type="button" class="provider-btn" data-provider="openrouter">OpenRouter</button>
+              <button type="button" class="provider-btn" data-provider="openai">OpenAI</button>
+            </div>
+            <p class="field-hint" id="provider-hint"></p>
           </div>
+
+          <div class="field-group" id="key-group" hidden>
+            <label class="field-label" for="api-key" id="key-label">API Key</label>
+            <input type="password" id="api-key" class="field-input" spellcheck="false" />
+            <p class="field-hint" id="key-hint"></p>
+          </div>
+
+          <div class="field-group" id="model-group" hidden>
+            <label class="field-label" for="model-input">
+              Model <span class="field-optional">(optional)</span>
+            </label>
+            <input type="text" id="model-input" class="field-input" spellcheck="false" />
+            <p class="field-hint">Leave blank to use the default model.</p>
+          </div>
+
           <button type="submit" id="save-key" class="btn-primary">Save</button>
           <p id="save-status" class="save-status" aria-live="polite"></p>
-          <p class="key-help">
-            Get a free key at
-            <a href="https://aistudio.google.com/app/apikey"
-               target="_blank" rel="noopener noreferrer">
-              Google AI Studio
-            </a>.
-          </p>
+
         </form>
       </div>
     </section>

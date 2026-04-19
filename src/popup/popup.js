@@ -50,43 +50,98 @@
 
   // ── Settings ────────────────────────────────────────────────────────────
 
+  const PROVIDER_CONFIG = {
+    none: {
+      providerHint: "Extracts products from title and description using pattern matching — no API key needed.",
+      keyLabel: null, keyPlaceholder: null, keyField: null,
+      modelField: null, defaultModel: null, keyHintHtml: null,
+    },
+    gemini: {
+      providerHint: "Uses Google Gemini for structured JSON product extraction.",
+      keyLabel: "Gemini API Key", keyPlaceholder: "AIza\u2026",
+      keyField: "geminiApiKey", modelField: "geminiModel",
+      defaultModel: "gemini-2.5-flash",
+      keyHintHtml: 'Get a free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.',
+    },
+    openrouter: {
+      providerHint: "OpenAI-compatible API with free and paid open-weight models. OpenRouter keys only — not OpenAI keys.",
+      keyLabel: "OpenRouter API Key", keyPlaceholder: "sk-or-\u2026",
+      keyField: "openrouterApiKey", modelField: "openrouterModel",
+      defaultModel: "meta-llama/llama-3.1-8b-instruct:free",
+      keyHintHtml: 'Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">openrouter.ai/keys</a>. Free models available.',
+    },
+    openai: {
+      providerHint: "Uses OpenAI directly. gpt-4o-mini is the cheapest option.",
+      keyLabel: "OpenAI API Key", keyPlaceholder: "sk-\u2026",
+      keyField: "openaiApiKey", modelField: "openaiModel",
+      defaultModel: "gpt-4o-mini",
+      keyHintHtml: 'Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">platform.openai.com/api-keys</a>.',
+    },
+  };
+
   async function renderSettings() {
-    const input = document.getElementById("api-key");
-    const hint  = document.getElementById("key-hint");
-    const status = document.getElementById("save-status");
-    const form  = document.getElementById("settings-form");
+    const providerBtns  = document.querySelectorAll(".provider-btn");
+    const keyGroup      = document.getElementById("key-group");
+    const modelGroup    = document.getElementById("model-group");
+    const providerHintEl= document.getElementById("provider-hint");
+    const keyLabel      = document.getElementById("key-label");
+    const keyInput      = document.getElementById("api-key");
+    const keyHint       = document.getElementById("key-hint");
+    const modelInput    = document.getElementById("model-input");
+    const statusEl      = document.getElementById("save-status");
+    const form          = document.getElementById("settings-form");
 
-    let settings = { geminiApiKey: null };
-    try {
-      settings = await self.Scout.storage.getSettings();
-    } catch (_) {}
+    let settings = {};
+    try { settings = await self.Scout.storage.getSettings(); } catch (_) {}
 
-    if (settings.geminiApiKey) {
-      input.value = settings.geminiApiKey;
-      hint.textContent = "";
-    } else {
-      hint.textContent = "Required to extract products from videos.";
+    let currentProvider = settings.provider || "none";
+
+    function applyProvider(provider) {
+      currentProvider = provider;
+      const cfg = PROVIDER_CONFIG[provider] || PROVIDER_CONFIG.none;
+
+      providerBtns.forEach((btn) =>
+        btn.classList.toggle("provider-btn--active", btn.dataset.provider === provider)
+      );
+
+      providerHintEl.textContent = cfg.providerHint;
+
+      const needsKey = !!cfg.keyField;
+      keyGroup.hidden  = !needsKey;
+      modelGroup.hidden = !needsKey;
+
+      if (needsKey) {
+        keyLabel.textContent    = cfg.keyLabel;
+        keyInput.placeholder    = cfg.keyPlaceholder;
+        keyInput.value          = settings[cfg.keyField] || "";
+        keyHint.innerHTML       = cfg.keyHintHtml;
+        modelInput.placeholder  = `${cfg.defaultModel} (default)`;
+        modelInput.value        = settings[cfg.modelField] || "";
+      }
     }
+
+    providerBtns.forEach((btn) =>
+      btn.addEventListener("click", () => applyProvider(btn.dataset.provider))
+    );
+
+    applyProvider(currentProvider);
 
     form.addEventListener("submit", async (e) => {
       e.preventDefault();
-      const key = input.value.trim();
+      const cfg   = PROVIDER_CONFIG[currentProvider] || PROVIDER_CONFIG.none;
+      const patch = { provider: currentProvider };
+      if (cfg.keyField)   patch[cfg.keyField]   = keyInput.value.trim()  || null;
+      if (cfg.modelField) patch[cfg.modelField] = modelInput.value.trim() || null;
       try {
-        await self.Scout.storage.setSettings({ geminiApiKey: key || null });
-        hint.textContent = key ? "" : "Required to extract products from videos.";
-        status.textContent = "Saved \u2713";
-        status.className = "save-status save-status--ok";
-        setTimeout(() => {
-          status.textContent = "";
-          status.className = "save-status";
-        }, 2000);
+        await self.Scout.storage.setSettings(patch);
+        settings = await self.Scout.storage.getSettings();
+        statusEl.textContent = "Saved \u2713";
+        statusEl.className   = "save-status save-status--ok";
+        setTimeout(() => { statusEl.textContent = ""; statusEl.className = "save-status"; }, 2000);
       } catch (err) {
-        status.textContent = "Save failed — try again";
-        status.className = "save-status save-status--err";
-        setTimeout(() => {
-          status.textContent = "";
-          status.className = "save-status";
-        }, 3000);
+        statusEl.textContent = "Save failed \u2014 try again";
+        statusEl.className   = "save-status save-status--err";
+        setTimeout(() => { statusEl.textContent = ""; statusEl.className = "save-status"; }, 3000);
       }
     });
   }
@@ -375,8 +430,8 @@
 
   // ── Shopping list ───────────────────────────────────────────────────────
 
-  // Track whether the API key is set so renderList can show the right empty state.
-  let _apiKeySet = false;
+  // True when extraction will work (heuristic always works; LLM needs a key).
+  let _readyToExtract = false;
 
   async function renderList() {
     const container = document.getElementById("list");
@@ -401,8 +456,8 @@
 
     if (!Array.isArray(items) || items.length === 0) {
       // Choose empty-state message based on context
-      const emptyHint = !_apiKeySet
-        ? "Add your Gemini API key in Settings to start saving products."
+      const emptyHint = !_readyToExtract
+        ? "Open Settings to configure a provider, then save a YouTube video."
         : "Save a YouTube video to get started";
 
       container.innerHTML =
@@ -430,6 +485,57 @@
         // buildCard itself never throws (it has an internal fallback), but be safe
       }
     });
+
+    // Export bar
+    const bar = document.createElement("div");
+    bar.className = "export-bar";
+    const exportBtn = document.createElement("button");
+    exportBtn.className = "btn-ghost";
+    exportBtn.type = "button";
+    exportBtn.textContent = "Export JSON";
+    exportBtn.addEventListener("click", () => {
+      try {
+        const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href     = url;
+        a.download = `scout-export-${new Date().toISOString().slice(0,10)}.json`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (_) {}
+    });
+    const csvBtn = document.createElement("button");
+    csvBtn.className = "btn-ghost";
+    csvBtn.type = "button";
+    csvBtn.textContent = "Export CSV";
+    csvBtn.addEventListener("click", () => {
+      try {
+        const rows = [["video_title","channel","product_name","brand","category","search_query","confidence","buy_link","video_url"]];
+        items.forEach((item) => {
+          const v = item.video || {};
+          (Array.isArray(item.products) ? item.products : []).forEach((p) => {
+            rows.push([
+              v.title || "", v.channel || "",
+              p.name || "", p.brand || "", p.category || "",
+              p.searchQuery || "", p.confidence ?? "",
+              formatSearchUrl(p.searchQuery || p.name || ""),
+              v.url || "",
+            ].map((c) => `"${String(c).replace(/"/g, '""')}"`));
+          });
+        });
+        const csv  = rows.map((r) => r.join(",")).join("\n");
+        const blob = new Blob([csv], { type: "text/csv" });
+        const url  = URL.createObjectURL(blob);
+        const a    = document.createElement("a");
+        a.href     = url;
+        a.download = `scout-export-${new Date().toISOString().slice(0,10)}.csv`;
+        a.click();
+        URL.revokeObjectURL(url);
+      } catch (_) {}
+    });
+    bar.appendChild(exportBtn);
+    bar.appendChild(csvBtn);
+    container.appendChild(bar);
   }
 
   // ── Init ────────────────────────────────────────────────────────────────
@@ -437,10 +543,14 @@
   setupTabs();
   await renderSettings();
 
-  // Read API key state once for empty-state messaging
   try {
     const settings = await self.Scout.storage.getSettings();
-    _apiKeySet = !!(settings && settings.geminiApiKey);
+    const p = settings.provider || "none";
+    _readyToExtract =
+      p === "none" ||
+      (p === "gemini"      && !!settings.geminiApiKey) ||
+      (p === "openrouter"  && !!settings.openrouterApiKey) ||
+      (p === "openai"      && !!settings.openaiApiKey);
   } catch (_) {}
 
   const pendingSection = document.getElementById("pending-section");

@@ -65,26 +65,23 @@ async function runExtraction(videoMeta, existingId, tabId) {
   // Belt-and-suspenders: ensure inFlight is cleaned up on any unexpected throw
   try {
     const settings = await Scout.storage.getSettings();
-    const apiKey = settings.geminiApiKey;
-    if (!apiKey) {
-      const msg = "Gemini API key not set. Open Scout popup → Settings to add one.";
-      if (tabId) sendProgress(tabId, "error", msg);
-      return { ok: false, error: msg };
-    }
+    const needsTranscript = settings.provider !== "none";
 
     inFlight.set(videoMeta.videoId, {
       videoMeta,
       startedAt: Date.now(),
-      status: "fetching-transcript",
+      status: needsTranscript ? "fetching-transcript" : "extracting-products",
     });
     broadcastInFlight();
-    if (tabId) sendProgress(tabId, "fetching-transcript");
+    if (tabId && needsTranscript) sendProgress(tabId, "fetching-transcript");
 
     let transcript = null;
-    try {
-      transcript = await Scout.parser.fetchTranscript(videoMeta.videoId);
-    } catch (_) {
-      // Network error — continue without transcript
+    if (needsTranscript) {
+      try {
+        transcript = await Scout.parser.fetchTranscript(videoMeta.videoId);
+      } catch (_) {
+        // Network error — continue without transcript
+      }
     }
 
     inFlight.set(videoMeta.videoId, {
@@ -100,7 +97,7 @@ async function runExtraction(videoMeta, existingId, tabId) {
       products = await Scout.parser.extractProducts({
         videoMeta,
         transcriptText: transcript?.text ?? null,
-        apiKey,
+        settings,
       });
     } catch (err) {
       inFlight.delete(videoMeta.videoId);
@@ -122,7 +119,6 @@ async function runExtraction(videoMeta, existingId, tabId) {
     try {
       await Scout.storage.addItem(item);
     } catch (storageErr) {
-      // Quota exceeded is re-thrown by storage with a clear message
       if (tabId) sendProgress(tabId, "error", storageErr.message);
       return { ok: false, error: storageErr.message };
     }
