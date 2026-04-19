@@ -264,14 +264,20 @@ Your job: surface every searchable product a shopper might want from this YouTub
 
 Never emit a raw comment string as a product name. Extract the item (e.g. "lace trim skirts"), not "love the lace trim skirts!!". Never emit self-promotional creator comments ("links in description", "pics in blog", "thanks for watching") as products.
 
+NAME QUALITY — every product must be uniquely searchable on Google Shopping:
+- NEVER use placeholder labels as names: "Item 1", "Product 3", "Look 2", "#4", "Piece 5" — these are labels, not descriptions. If the description uses numbered labels, read the ACTUAL descriptor on that line/entry; if no real descriptor exists, SKIP that entry.
+- NEVER use a bare category word alone: "dress", "shoes", "bag", "top", "shirt". These return garbage search results. Either add descriptors (color, material, silhouette, brand, pattern) or skip the item.
+- Two products must never share the same searchQuery. If you can't differentiate two items with distinct descriptors, only include the more specific one.
+- A good name reads like a product page title: "cream ribbed wool turtleneck", "Adidas Sambas white black", "beige leather bucket bag", "Rhode peptide lip treatment salted caramel". A bad name reads like a label: "Top 1", "Shoes", "Item *".
+
 Rules:
 - Extract every distinct item from any of the three sources. Aim HIGH on recall: a fashion/haul/lookbook video should return 8–30 items, not 1.
 - Prefer specific descriptors: color + material + silhouette + item type ("cream ribbed wool turtleneck"). Brand when available or inferable.
 - Deduplicate — merge near-duplicate mentions of the same item, even across sources.
-- searchQuery: Google-Shopping-ready string, 3–6 lowercase keywords, no punctuation. Lead with brand if known.
+- searchQuery: Google-Shopping-ready string, 3–6 lowercase keywords, no punctuation, no numbers-as-labels. Lead with brand if known. Each query must be unique across the response.
 - timestamp: "m:ss" ONLY when transcript clearly pins a moment. Use null (not "0:00" or "N/A") if unknown.
 - brand: exact brand string when known, otherwise null. Do NOT write "Unknown", "N/A", or "None".
-- confidence: 0–1, your certainty it's a real searchable product. Include items ≥ 0.4. Comments naming a specific garment/accessory ≥ 0.5.
+- confidence: 0–1, your certainty it's a real searchable product. Include items ≥ 0.4. Comments naming a specific garment/accessory ≥ 0.5. Drop confidence below 0.4 for any item whose name you can't make genuinely specific.
 - An empty array is only correct when the video is genuinely not about shoppable items (e.g. a vlog with no visible products AND no product mentions in any source). Otherwise: return items.
 - Respond with ONLY a valid JSON array of product objects. No prose, no markdown.
 
@@ -508,16 +514,45 @@ ${comments}${imagesNote}`;
     return t;
   }
 
+  // Placeholder/label patterns that are not real product names.
+  // "ITEM 9 *", "Product 3", "#4", "Look 2", etc.
+  const PLACEHOLDER_NAME_RX = /^\s*(?:[#*•\-]*\s*)?(?:item|product|look|piece|option|number|no\.?|#)\s*\d+\s*[*•\-]*\s*$/i;
+  // Bare category word with no descriptor — "shoes", "dress", "bag", etc.
+  // Useless as a Google-Shopping query on its own.
+  const BARE_CATEGORY_RX = /^(?:top|tops|shirt|shirts|blouse|tee|tees|tank|sweater|knit|dress|dresses|skirt|skirts|pant|pants|trouser|trousers|jean|jeans|short|shorts|jacket|coat|blazer|cardigan|hoodie|shoe|shoes|boot|boots|sneaker|sneakers|heel|heels|loafer|loafers|sandal|sandals|bag|bags|purse|tote|clutch|backpack|hat|belt|scarf|necklace|earring|earrings|ring|bracelet|watch|sunglasses|accessory|item|items|product|products|outfit|look)$/i;
+
+  // searchQuery must have real semantic content — reject numbered/empty placeholders
+  const PLACEHOLDER_QUERY_RX = /^\s*(?:item|product|look|piece|no\.?|#)?\s*\d+\s*\*?\s*$/i;
+
+  function hasMeaningfulContent(str) {
+    if (typeof str !== "string") return false;
+    const words = str.trim().split(/\s+/).filter((w) => /[a-z]/i.test(w));
+    return words.length >= 2;
+  }
+
   function coerceProduct(p) {
     if (p === null || typeof p !== "object") return null;
     if (typeof p.name !== "string" || p.name.trim() === "") return null;
     if (typeof p.searchQuery !== "string" || p.searchQuery.trim() === "") return null;
     if (typeof p.confidence !== "number") return null;
+
+    const name = p.name.trim();
+    const searchQuery = p.searchQuery.trim();
+
+    // Reject placeholder / non-unique names that would search poorly
+    if (PLACEHOLDER_NAME_RX.test(name)) return null;
+    if (BARE_CATEGORY_RX.test(name)) return null;
+    if (PLACEHOLDER_QUERY_RX.test(searchQuery)) return null;
+
+    // Require at least 2 alphabetic words in EITHER name or searchQuery —
+    // a single-word product like "dress" is not Google-Shopping-ready.
+    if (!hasMeaningfulContent(name) && !hasMeaningfulContent(searchQuery)) return null;
+
     return {
-      name: p.name.trim(),
+      name,
       brand: normalizeStringField(p.brand),
       category: VALID_CATEGORIES.has(p.category) ? p.category : "other",
-      searchQuery: p.searchQuery.trim(),
+      searchQuery,
       confidence: p.confidence,
       timestamp: normalizeStringField(p.timestamp),
     };
@@ -532,10 +567,20 @@ ${comments}${imagesNote}`;
     const parsed = JSON.parse(cleaned);
     if (!Array.isArray(parsed)) throw new Error("Response was not a JSON array");
     const beforeFilter = parsed.length;
-    const products = parsed
-      .map(coerceProduct)
-      .filter((p) => p !== null && p.confidence >= 0.4)
-      .slice(0, 150);
+
+    // Dedupe by normalized searchQuery so two items with the same query collapse.
+    const seenQueries = new Set();
+    const products = [];
+    for (const raw of parsed) {
+      const p = coerceProduct(raw);
+      if (!p) continue;
+      if (p.confidence < 0.4) continue;
+      const qKey = p.searchQuery.toLowerCase().replace(/\s+/g, " ").trim();
+      if (seenQueries.has(qKey)) continue;
+      seenQueries.add(qKey);
+      products.push(p);
+      if (products.length >= 150) break;
+    }
     if (beforeFilter > 0 && products.length === 0) {
       console.warn("[Scout] all", beforeFilter, "items filtered out after validation");
     }

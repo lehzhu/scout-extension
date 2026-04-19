@@ -473,6 +473,8 @@ body {
   background: var(--scout-surface);
 }
 
+.info-block[hidden] { display: none; }
+
 .info-block__head {
   font-size: 12px;
   font-weight: 600;

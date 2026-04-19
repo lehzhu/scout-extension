@@ -252,11 +252,12 @@
      * comments contribute them; others just get a shorter pool.
      * @returns {string[]}
      */
+    const COMMENT_SELECTOR =
+      "ytd-comment-thread-renderer #content-text, ytd-comment-view-model #content-text, #comments #content-text";
+
     function scrapeTopComments(maxN = 20) {
       try {
-        const nodes = document.querySelectorAll(
-          "ytd-comment-thread-renderer #content-text, ytd-comment-view-model #content-text, #comments #content-text"
-        );
+        const nodes = document.querySelectorAll(COMMENT_SELECTOR);
         const out = [];
         for (const n of nodes) {
           const t = (n.textContent || "").trim().replace(/\s+/g, " ");
@@ -266,6 +267,42 @@
         return out;
       } catch (_) {
         return [];
+      }
+    }
+
+    /**
+     * YouTube lazy-loads comments when `#comments` enters the viewport.
+     * If no comment nodes are present, briefly scroll the comments section
+     * into view, wait for the first comment to render, then restore the
+     * original scroll position. User sees a quick flicker at worst.
+     * @param {number} timeoutMs - max time to wait for comments to appear
+     */
+    async function ensureCommentsLoaded(timeoutMs = 1500) {
+      try {
+        if (document.querySelector(COMMENT_SELECTOR)) return;
+        const anchor =
+          document.querySelector("ytd-comments#comments") ||
+          document.querySelector("#comments");
+        if (!anchor) return;
+        const savedScroll = window.scrollY;
+        anchor.scrollIntoView({ block: "center", behavior: "instant" });
+        await new Promise((resolve) => {
+          const done = () => {
+            try { observer.disconnect(); } catch (_) {}
+            clearTimeout(timer);
+            resolve();
+          };
+          const observer = new MutationObserver(() => {
+            if (document.querySelector(COMMENT_SELECTOR)) done();
+          });
+          observer.observe(anchor, { childList: true, subtree: true });
+          const timer = setTimeout(done, timeoutMs);
+          // Early resolve if already rendered between the check and observer wiring
+          if (document.querySelector(COMMENT_SELECTOR)) done();
+        });
+        window.scrollTo({ top: savedScroll, behavior: "instant" });
+      } catch (_) {
+        // Non-fatal — save proceeds without comments
       }
     }
 
@@ -463,6 +500,10 @@
           return;
         }
         if (btn.dataset.scoutPending === "1") return;
+
+        // Best-effort: trigger YouTube's comment lazy-load if the user hasn't
+        // scrolled to comments yet. Bounded — save never blocks on this.
+        try { await ensureCommentsLoaded(1500); } catch (_) {}
 
         let meta;
         try {
