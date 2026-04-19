@@ -1,10 +1,10 @@
-// Phia storage module — attaches to self.Phia.storage (works in SW, content, popup)
-self.Phia = self.Phia || {};
+// Scout storage module — attaches to self.Scout.storage (works in SW, content, popup)
+self.Scout = self.Scout || {};
 
-self.Phia.storage = (() => {
+self.Scout.storage = (() => {
   const KEYS = {
-    SETTINGS: "phia.settings",
-    ITEMS: "phia.items",
+    SETTINGS: "scout.settings",
+    ITEMS: "scout.items",
   };
 
   /**
@@ -34,7 +34,7 @@ self.Phia.storage = (() => {
       if (settings && typeof settings === "object") return settings;
       return { geminiApiKey: null };
     } catch (err) {
-      console.warn("[Phinds] getSettings failed, using default:", err.message);
+      console.warn("[Scout] getSettings failed, using default:", err.message);
       return { geminiApiKey: null };
     }
   }
@@ -61,18 +61,18 @@ self.Phia.storage = (() => {
       const raw = result[KEYS.ITEMS];
       if (!Array.isArray(raw)) {
         if (raw !== undefined) {
-          console.warn("[Phinds] getItems: stored value is not an array, returning []");
+          console.warn("[Scout] getItems: stored value is not an array, returning []");
         }
         return [];
       }
       const valid = raw.filter((item) => {
         if (isValidItem(item)) return true;
-        console.warn("[Phinds] getItems: dropping corrupted item:", item?.id ?? "(no id)");
+        console.warn("[Scout] getItems: dropping corrupted item:", item?.id ?? "(no id)");
         return false;
       });
       return valid;
     } catch (err) {
-      console.warn("[Phinds] getItems failed, returning []:", err.message);
+      console.warn("[Scout] getItems failed, returning []:", err.message);
       return [];
     }
   }

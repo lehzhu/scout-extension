@@ -1,5 +1,5 @@
 // tools/make-icons.js
-// Generates src/icons/icon-{16,48,128}.png with a Phia-orange background
+// Generates src/icons/icon-{16,48,128}.png with an orange background
 // and a white rounded-square shopping-bag motif. No npm deps.
 const fs = require('fs');
 const zlib = require('zlib');

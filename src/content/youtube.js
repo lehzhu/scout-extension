@@ -1,22 +1,22 @@
-(function phiaContentScript() {
+(function scoutContentScript() {
   "use strict";
 
   // ─── Top-level guard ──────────────────────────────────────────────────────
   // If the lib scripts failed to load, bail silently so YouTube is unaffected.
-  if (!self.Phia || !self.Phia.messaging) {
-    console.warn("[Phinds] messaging lib not loaded — content script inactive");
+  if (!self.Scout || !self.Scout.messaging) {
+    console.warn("[Scout] messaging lib not loaded — content script inactive");
     return;
   }
 
   // Wrap the entire script body so any unexpected throw never crashes the page.
   try {
-    _initPhiaContentScript();
+    _initScoutContentScript();
   } catch (err) {
-    console.warn("[Phinds] content script error:", err.message);
+    console.warn("[Scout] content script error:", err.message);
   }
 
-  function _initPhiaContentScript() {
-    const { MSG, sendMessage, onMessage } = self.Phia.messaging;
+  function _initScoutContentScript() {
+    const { MSG, sendMessage, onMessage } = self.Scout.messaging;
 
     // Track last URL to detect SPA navigations
     let lastUrl = "";
@@ -26,7 +26,7 @@
     function warnOnce(key, msg) {
       if (_warnedOnce.has(key)) return;
       _warnedOnce.add(key);
-      console.debug("[Phinds]", msg);
+      console.debug("[Scout]", msg);
     }
 
     // ─── DOM helpers ────────────────────────────────────────────────────────
@@ -69,7 +69,7 @@
     // ─── Button state helpers ────────────────────────────────────────────────
 
     const BTN_STYLES = {
-      default: { background: "#0F0F0F", label: "★ Save to Phinds", disabled: false },
+      default: { background: "#0F0F0F", label: "★ Save to Scout", disabled: false },
       saving:  { background: "#0F0F0F", label: "Saving…",          disabled: true  },
       saved:   { background: "#22A06B", label: "✓ Saved",           disabled: true  },
       error:   { background: "#F0336C", label: "⚠ Error — retry",   disabled: false },
@@ -86,8 +86,8 @@
 
     function createButton() {
       const btn = document.createElement("button");
-      btn.id = "phia-save-btn";
-      btn.className = "phia-save-btn";
+      btn.id = "scout-save-btn";
+      btn.className = "scout-save-btn";
 
       // Inline styles — avoids CSS specificity fights with YouTube
       Object.assign(btn.style, {
@@ -106,7 +106,7 @@
         transition: "background 0.15s",
       });
 
-      btn.textContent = "★ Save to Phinds";
+      btn.textContent = "★ Save to Scout";
 
       btn.addEventListener("mouseenter", () => {
         if (!btn.disabled) btn.style.background = "#2A2A2A";
@@ -181,7 +181,7 @@
     // ─── Button injection ────────────────────────────────────────────────────
 
     async function injectButton() {
-      if (document.getElementById("phia-save-btn")) return; // already present
+      if (document.getElementById("scout-save-btn")) return; // already present
 
       // Wait for the title area to exist (YouTube renders async)
       const anchor =
@@ -198,7 +198,7 @@
       // Listen for progress messages from background
       onMessage(MSG.SAVE_PROGRESS, async (payload) => {
         try {
-          const liveBtn = document.getElementById("phia-save-btn");
+          const liveBtn = document.getElementById("scout-save-btn");
           if (!liveBtn) return;
           switch (payload?.status) {
             case "fetching-transcript":
@@ -254,7 +254,7 @@
             // Service worker is asleep or extension was reloaded
             applyBtnState(btn, "error", "Extension reloading — try again");
             setTimeout(() => {
-              const liveBtn = document.getElementById("phia-save-btn");
+              const liveBtn = document.getElementById("scout-save-btn");
               if (liveBtn && liveBtn.textContent === "Extension reloading — try again") {
                 applyBtnState(liveBtn, "default");
               }
@@ -286,7 +286,7 @@
       applyBtnState(btn, "saved");
       setTimeout(() => {
         try {
-          if (document.getElementById("phia-save-btn") === btn) {
+          if (document.getElementById("scout-save-btn") === btn) {
             applyBtnState(btn, "default");
           }
         } catch (_) {}
@@ -302,7 +302,7 @@
         // If URL changed (SPA nav to a different video), remove stale button
         if (location.href !== lastUrl) {
           try {
-            const old = document.getElementById("phia-save-btn");
+            const old = document.getElementById("scout-save-btn");
             if (old) old.remove();
           } catch (_) {}
           lastUrl = location.href;
@@ -312,7 +312,7 @@
 
         await injectButton();
       } catch (err) {
-        console.warn("[Phinds] maybeInjectButton error:", err.message);
+        console.warn("[Scout] maybeInjectButton error:", err.message);
       }
     }
 

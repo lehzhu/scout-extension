@@ -1,8 +1,8 @@
-// Phinds popup — Shopping list + Settings
-(async function phindsPopup() {
+// Scout popup — Shopping list + Settings
+(async function scoutPopup() {
   "use strict";
 
-  const { MSG, sendMessage } = self.Phia.messaging;
+  const { MSG, sendMessage } = self.Scout.messaging;
 
   // ── Utilities ───────────────────────────────────────────────────────────
 
@@ -58,7 +58,7 @@
 
     let settings = { geminiApiKey: null };
     try {
-      settings = await self.Phia.storage.getSettings();
+      settings = await self.Scout.storage.getSettings();
     } catch (_) {}
 
     if (settings.geminiApiKey) {
@@ -72,7 +72,7 @@
       e.preventDefault();
       const key = input.value.trim();
       try {
-        await self.Phia.storage.setSettings({ geminiApiKey: key || null });
+        await self.Scout.storage.setSettings({ geminiApiKey: key || null });
         hint.textContent = key ? "" : "Required to extract products from videos.";
         status.textContent = "Saved \u2713";
         status.className = "save-status save-status--ok";
@@ -326,7 +326,7 @@
 
     } catch (err) {
       // Per-item fallback: render a minimal "couldn't render" card
-      console.warn("[Phinds] buildCard failed for item:", item?.id, err.message);
+      console.warn("[Scout] buildCard failed for item:", item?.id, err.message);
       const fallback = document.createElement("div");
       fallback.className = "video-card";
       fallback.style.opacity = "0.7";
@@ -439,7 +439,7 @@
 
   // Read API key state once for empty-state messaging
   try {
-    const settings = await self.Phia.storage.getSettings();
+    const settings = await self.Scout.storage.getSettings();
     _apiKeySet = !!(settings && settings.geminiApiKey);
   } catch (_) {}
 
@@ -460,7 +460,7 @@
 
   chrome.storage.onChanged.addListener((changes, area) => {
     try {
-      if (area === "local" && changes["phia.items"]) renderList();
+      if (area === "local" && changes["scout.items"]) renderList();
     } catch (_) {
       // Re-render failure must not unsubscribe the listener
     }

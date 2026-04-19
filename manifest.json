@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Phinds",
-  "short_name": "Phinds",
-  "description": "Phinds — save YouTube fashion/haul videos and auto-extract the clothing and products into a shoppable list.",
+  "name": "Scout",
+  "short_name": "Scout",
+  "description": "Scout — save YouTube fashion/haul videos and auto-extract the clothing and products into a shoppable list.",
   "version": "0.1.0",
   "action": {
     "default_popup": "src/popup/popup.html",

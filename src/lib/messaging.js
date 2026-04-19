@@ -1,7 +1,7 @@
-// Phia messaging module — attaches to self.Phia.messaging
-self.Phia = self.Phia || {};
+// Scout messaging module — attaches to self.Scout.messaging
+self.Scout = self.Scout || {};
 
-self.Phia.messaging = (() => {
+self.Scout.messaging = (() => {
   /** Message type constants */
   const MSG = {
     SAVE_VIDEO: "SAVE_VIDEO",           // content → background | payload: VideoMeta

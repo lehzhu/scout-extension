@@ -1,4 +1,4 @@
-// Phinds — background service worker
+// Scout — background service worker
 importScripts(
   "../lib/types.js",
   "../lib/storage.js",
@@ -6,7 +6,7 @@ importScripts(
   "./parser.js"
 );
 
-const { MSG } = self.Phia.messaging;
+const { MSG } = self.Scout.messaging;
 
 // ─── In-flight saves ──────────────────────────────────────────────────────────
 // Keyed by videoId → {videoMeta, startedAt, status}
@@ -23,14 +23,30 @@ function broadcastInFlight() {
 
 // ─── Message handlers ─────────────────────────────────────────────────────────
 
-chrome.runtime.onInstalled.addListener(() => console.log("[Phinds] installed"));
+chrome.runtime.onInstalled.addListener(async () => {
+  console.log("[Scout] installed");
+  // One-time migration: move legacy phia.* keys to scout.*
+  try {
+    const legacy = await chrome.storage.local.get(["phia.settings", "phia.items"]);
+    const patch = {};
+    if (legacy["phia.settings"] !== undefined) patch["scout.settings"] = legacy["phia.settings"];
+    if (legacy["phia.items"]    !== undefined) patch["scout.items"]    = legacy["phia.items"];
+    if (Object.keys(patch).length > 0) {
+      await chrome.storage.local.set(patch);
+      await chrome.storage.local.remove(["phia.settings", "phia.items"]);
+      console.log("[Scout] migrated legacy storage keys");
+    }
+  } catch (err) {
+    console.warn("[Scout] storage migration failed:", err.message);
+  }
+});
 
-Phia.messaging.onMessage(MSG.SAVE_VIDEO,    handleSaveVideo);
-Phia.messaging.onMessage(MSG.GET_ITEMS,     handleGetItems);
-Phia.messaging.onMessage(MSG.REMOVE_ITEM,   handleRemoveItem);
-Phia.messaging.onMessage(MSG.CLEAR_ITEMS,   handleClearItems);
-Phia.messaging.onMessage(MSG.RETRY_ITEM,    handleRetryItem);
-Phia.messaging.onMessage(MSG.GET_INFLIGHT,  handleGetInFlight);
+Scout.messaging.onMessage(MSG.SAVE_VIDEO,    handleSaveVideo);
+Scout.messaging.onMessage(MSG.GET_ITEMS,     handleGetItems);
+Scout.messaging.onMessage(MSG.REMOVE_ITEM,   handleRemoveItem);
+Scout.messaging.onMessage(MSG.CLEAR_ITEMS,   handleClearItems);
+Scout.messaging.onMessage(MSG.RETRY_ITEM,    handleRetryItem);
+Scout.messaging.onMessage(MSG.GET_INFLIGHT,  handleGetInFlight);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -48,10 +64,10 @@ async function runExtraction(videoMeta, existingId, tabId) {
 
   // Belt-and-suspenders: ensure inFlight is cleaned up on any unexpected throw
   try {
-    const settings = await Phia.storage.getSettings();
+    const settings = await Scout.storage.getSettings();
     const apiKey = settings.geminiApiKey;
     if (!apiKey) {
-      const msg = "Gemini API key not set. Open Phinds popup → Settings to add one.";
+      const msg = "Gemini API key not set. Open Scout popup → Settings to add one.";
       if (tabId) sendProgress(tabId, "error", msg);
       return { ok: false, error: msg };
     }
@@ -66,7 +82,7 @@ async function runExtraction(videoMeta, existingId, tabId) {
 
     let transcript = null;
     try {
-      transcript = await Phia.parser.fetchTranscript(videoMeta.videoId);
+      transcript = await Scout.parser.fetchTranscript(videoMeta.videoId);
     } catch (_) {
       // Network error — continue without transcript
     }
@@ -81,7 +97,7 @@ async function runExtraction(videoMeta, existingId, tabId) {
 
     let products;
     try {
-      products = await Phia.parser.extractProducts({
+      products = await Scout.parser.extractProducts({
         videoMeta,
         transcriptText: transcript?.text ?? null,
         apiKey,
@@ -92,9 +108,9 @@ async function runExtraction(videoMeta, existingId, tabId) {
       const errorMsg = err.message || "Unknown extraction error";
       const item = { id, video: videoMeta, products: [], status: "error", error: errorMsg };
       try {
-        await Phia.storage.addItem(item);
+        await Scout.storage.addItem(item);
       } catch (storageErr) {
-        console.error("[Phinds] runExtraction: could not save error item:", storageErr.message);
+        console.error("[Scout] runExtraction: could not save error item:", storageErr.message);
       }
       if (tabId) sendProgress(tabId, "done", errorMsg);
       return { ok: false, error: errorMsg };
@@ -104,7 +120,7 @@ async function runExtraction(videoMeta, existingId, tabId) {
     broadcastInFlight();
     const item = { id, video: videoMeta, products, status: "ready", error: null };
     try {
-      await Phia.storage.addItem(item);
+      await Scout.storage.addItem(item);
     } catch (storageErr) {
       // Quota exceeded is re-thrown by storage with a clear message
       if (tabId) sendProgress(tabId, "error", storageErr.message);
@@ -118,7 +134,7 @@ async function runExtraction(videoMeta, existingId, tabId) {
     inFlight.delete(videoMeta.videoId);
     broadcastInFlight();
     const errorMsg = err.message || "Unexpected error during extraction";
-    console.error("[Phinds] runExtraction unexpected error:", errorMsg);
+    console.error("[Scout] runExtraction unexpected error:", errorMsg);
     if (tabId) sendProgress(tabId, "error", errorMsg);
     return { ok: false, error: errorMsg };
   }
@@ -147,9 +163,9 @@ async function handleSaveVideo(videoMeta, sender) {
 
 async function handleGetItems() {
   try {
-    return await Phia.storage.getItems();
+    return await Scout.storage.getItems();
   } catch (err) {
-    console.error("[Phinds] handleGetItems error:", err.message);
+    console.error("[Scout] handleGetItems error:", err.message);
     return [];
   }
 }
@@ -160,7 +176,7 @@ async function handleRemoveItem(payload) {
     return { ok: false, error: "Invalid id" };
   }
   try {
-    await Phia.storage.removeItem(id);
+    await Scout.storage.removeItem(id);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message || "Remove failed" };
@@ -169,7 +185,7 @@ async function handleRemoveItem(payload) {
 
 async function handleClearItems() {
   try {
-    await Phia.storage.clearItems();
+    await Scout.storage.clearItems();
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message || "Clear failed" };
@@ -180,7 +196,7 @@ async function handleGetInFlight() {
   try {
     return Array.from(inFlight.values());
   } catch (err) {
-    console.error("[Phinds] handleGetInFlight error:", err.message);
+    console.error("[Scout] handleGetInFlight error:", err.message);
     return [];
   }
 }
@@ -193,7 +209,7 @@ async function handleRetryItem(payload) {
 
   let items;
   try {
-    items = await Phia.storage.getItems();
+    items = await Scout.storage.getItems();
   } catch (err) {
     return { ok: false, error: "Could not read saved items" };
   }
@@ -203,7 +219,7 @@ async function handleRetryItem(payload) {
 
   let settings;
   try {
-    settings = await Phia.storage.getSettings();
+    settings = await Scout.storage.getSettings();
   } catch (err) {
     return { ok: false, error: "Could not read settings" };
   }
@@ -229,10 +245,10 @@ async function handleRetryItem(payload) {
   broadcastInFlight();
 
   try {
-    await Phia.storage.removeItem(id);
+    await Scout.storage.removeItem(id);
   } catch (err) {
     // If we can't remove the old item, still try extraction but log the issue
-    console.warn("[Phinds] handleRetryItem: could not remove old item:", err.message);
+    console.warn("[Scout] handleRetryItem: could not remove old item:", err.message);
   }
 
   // Fire-and-forget: the popup updates via INFLIGHT_UPDATE and storage.onChanged.
@@ -241,7 +257,7 @@ async function handleRetryItem(payload) {
     // runExtraction is belt-and-suspenders — this catch is the final safety net
     inFlight.delete(videoMeta.videoId);
     broadcastInFlight();
-    console.error("[Phinds] handleRetryItem: runExtraction threw unexpectedly:", err.message);
+    console.error("[Scout] handleRetryItem: runExtraction threw unexpectedly:", err.message);
   });
 
   return { ok: true };

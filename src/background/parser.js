@@ -1,7 +1,7 @@
-// Phia parser module — attaches to self.Phia.parser
-self.Phia = self.Phia || {};
+// Scout parser module — attaches to self.Scout.parser
+self.Scout = self.Scout || {};
 
-self.Phia.parser = (() => {
+self.Scout.parser = (() => {
   const MAX_TRANSCRIPT_CHARS = 30000;
   const GEMINI_ENDPOINT =
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent";
@@ -287,7 +287,7 @@ Transcript: ${transcript}`;
       .slice(0, 25);
 
     if (beforeFilter > 0 && products.length === 0) {
-      console.warn("[Phinds] extractProducts: all", beforeFilter, "items were filtered out after validation");
+      console.warn("[Scout] extractProducts: all", beforeFilter, "items were filtered out after validation");
     }
 
     return products;
