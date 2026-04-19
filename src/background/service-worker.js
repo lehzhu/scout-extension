@@ -147,8 +147,14 @@ async function runExtraction(videoMeta, existingId, tabId) {
 
 // ─── Handlers ─────────────────────────────────────────────────────────────────
 
-async function handleSaveVideo(videoMeta, sender) {
-  // Validate payload
+async function handleSaveVideo(payload, sender) {
+  // The content script sends either VideoMeta directly (legacy) or
+  // { ...VideoMeta, force?: boolean }. Accept both.
+  const force = payload && payload.force === true;
+  const videoMeta = payload && typeof payload === "object" && "videoId" in payload
+    ? payload
+    : null;
+
   if (!videoMeta || typeof videoMeta.videoId !== "string" || videoMeta.videoId.trim() === "") {
     return { ok: false, error: "Invalid video metadata — missing videoId" };
   }
@@ -156,6 +162,25 @@ async function handleSaveVideo(videoMeta, sender) {
   // Concurrent save dedupe
   if (inFlight.has(videoMeta.videoId)) {
     return { ok: false, error: "Already saving this video" };
+  }
+
+  // Already-saved dedupe — user must opt in via force to re-save.
+  if (!force) {
+    try {
+      const existing = await Scout.storage.getItems();
+      const dup = existing.find((i) => i && i.video && i.video.videoId === videoMeta.videoId);
+      if (dup) {
+        return {
+          ok: false,
+          duplicate: true,
+          existingId: dup.id,
+          savedAt: dup.video && dup.video.savedAt,
+          error: "Already saved",
+        };
+      }
+    } catch (_) {
+      // If lookup fails, fall through and allow the save
+    }
   }
 
   const tabId = sender?.tab?.id ?? null;

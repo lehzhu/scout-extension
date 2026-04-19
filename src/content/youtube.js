@@ -123,6 +123,86 @@
       return btn;
     }
 
+    // ─── Toast (duplicate warning) ───────────────────────────────────────────
+
+    function showDuplicateToast(savedAt, onConfirm) {
+      try {
+        document.getElementById("scout-toast")?.remove();
+      } catch (_) {}
+      const toast = document.createElement("div");
+      toast.id = "scout-toast";
+      Object.assign(toast.style, {
+        position: "fixed",
+        right: "20px",
+        bottom: "20px",
+        zIndex: "2147483647",
+        background: "#0F0F0F",
+        color: "#FFFFFF",
+        padding: "14px 16px",
+        borderRadius: "12px",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+        fontFamily: '-apple-system, "Inter", "Segoe UI", Helvetica, Arial, sans-serif',
+        fontSize: "13px",
+        lineHeight: "1.4",
+        maxWidth: "320px",
+        display: "flex",
+        flexDirection: "column",
+        gap: "10px",
+      });
+
+      const msg = document.createElement("div");
+      const when = savedAt
+        ? ` on ${new Date(savedAt).toLocaleDateString()}`
+        : "";
+      msg.textContent = `You already saved this video${when}.`;
+      toast.appendChild(msg);
+
+      const actions = document.createElement("div");
+      actions.style.display = "flex";
+      actions.style.gap = "8px";
+      actions.style.justifyContent = "flex-end";
+
+      const dismiss = document.createElement("button");
+      dismiss.textContent = "Dismiss";
+      Object.assign(dismiss.style, {
+        background: "transparent",
+        color: "#FFFFFF",
+        border: "1px solid rgba(255,255,255,0.3)",
+        padding: "6px 12px",
+        borderRadius: "8px",
+        cursor: "pointer",
+        fontSize: "12px",
+        fontWeight: "500",
+      });
+      dismiss.addEventListener("click", () => toast.remove());
+
+      const confirm = document.createElement("button");
+      confirm.textContent = "Save anyway";
+      Object.assign(confirm.style, {
+        background: "#FFFFFF",
+        color: "#0F0F0F",
+        border: "0",
+        padding: "6px 12px",
+        borderRadius: "8px",
+        cursor: "pointer",
+        fontSize: "12px",
+        fontWeight: "600",
+      });
+      confirm.addEventListener("click", () => {
+        toast.remove();
+        try { onConfirm && onConfirm(); } catch (_) {}
+      });
+
+      actions.appendChild(dismiss);
+      actions.appendChild(confirm);
+      toast.appendChild(actions);
+      document.body.appendChild(toast);
+
+      setTimeout(() => {
+        try { toast.remove(); } catch (_) {}
+      }, 8000);
+    }
+
     // ─── Frame + comment scraping ────────────────────────────────────────────
 
     /**
@@ -310,10 +390,7 @@
         } catch (_) {}
       });
 
-      btn.addEventListener("click", async () => {
-        // Dedupe rapid double-clicks
-        if (btn.dataset.scoutPending === "1") return;
-
+      async function doSave(force) {
         let meta;
         try {
           meta = extractVideoMeta();
@@ -321,27 +398,29 @@
           applyBtnState(btn, "error", "⚠ Could not read page — retry");
           return;
         }
-
         if (!meta.videoId) {
           applyBtnState(btn, "error", "⚠ No video ID — retry");
           return;
         }
 
-        // Optimistic UX: flip to green checkmark immediately. Extraction
-        // runs in the background; progress messages will update state only
-        // if something actually fails.
+        // Optimistic UX: flip to green checkmark immediately.
         btn.dataset.scoutPending = "1";
         applyBtnState(btn, "saved");
 
+        let resp;
         try {
-          await sendMessage(MSG.SAVE_VIDEO, meta);
+          resp = await sendMessage(MSG.SAVE_VIDEO, { ...meta, force: !!force });
         } catch (_) {
-          // sendMessage always resolves in practice; ignore
+          resp = { ok: false, error: "No receiver" };
         }
 
-        // Keep the "Saved" state visible for a moment, then return to default
-        // so the user can save a different video. The detail-view progress
-        // still lives in the popup / saves list.
+        if (resp && resp.duplicate) {
+          applyBtnState(btn, "default");
+          delete btn.dataset.scoutPending;
+          showDuplicateToast(resp.savedAt, () => doSave(true));
+          return;
+        }
+
         setTimeout(() => {
           try {
             const liveBtn = document.getElementById("scout-save-btn");
@@ -349,6 +428,11 @@
             if (liveBtn) delete liveBtn.dataset.scoutPending;
           } catch (_) {}
         }, 1800);
+      }
+
+      btn.addEventListener("click", async () => {
+        if (btn.dataset.scoutPending === "1") return;
+        await doSave(false);
       });
 
       // Preferred: insert right after #owner so we land between Subscribe

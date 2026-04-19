@@ -21,6 +21,7 @@
   // ── State ───────────────────────────────────────────────────────────────
 
   let allItems = [];
+  let notesMap = {};
   let listSearchText = "";
   let listActiveCategory = "All";
   let detailActiveCategory = "All";
@@ -89,49 +90,14 @@
     } catch (_) {
       allItems = [];
     }
-    route();
-  }
-
-  // ── Category helpers ────────────────────────────────────────────────────
-
-  function categoriesOf(products) {
-    const set = new Set();
-    (Array.isArray(products) ? products : []).forEach((p) => {
-      if (p && typeof p.category === "string" && p.category.trim()) {
-        set.add(p.category.trim());
-      }
-    });
-    return Array.from(set).sort();
-  }
-
-  function unionCategories(items) {
-    const set = new Set();
-    (Array.isArray(items) ? items : []).forEach((item) => {
-      categoriesOf(item && item.products).forEach((c) => set.add(c));
-    });
-    return Array.from(set).sort();
-  }
-
-  function buildChip(label, isActive, onClick) {
-    const chip = document.createElement("button");
-    chip.type = "button";
-    chip.className = "chip" + (isActive ? " chip--active" : "");
-    chip.textContent = label;
-    chip.addEventListener("click", () => {
-      try { onClick(label); } catch (_) {}
-    });
-    return chip;
-  }
-
-  function renderChipBar(container, categories, activeCategory, onSelect) {
     try {
-      container.innerHTML = "";
-      const all = buildChip("All", activeCategory === "All", () => onSelect("All"));
-      container.appendChild(all);
-      categories.forEach((cat) => {
-        container.appendChild(buildChip(cat, activeCategory === cat, () => onSelect(cat)));
-      });
-    } catch (_) {}
+      notesMap = (self.Scout.storage && typeof self.Scout.storage.getNotes === "function")
+        ? await self.Scout.storage.getNotes()
+        : {};
+    } catch (_) {
+      notesMap = {};
+    }
+    route();
   }
 
   // ── List view ───────────────────────────────────────────────────────────
@@ -195,6 +161,17 @@
       channel.textContent = v.channel || "";
       body.appendChild(channel);
 
+      // Notes preview (first ~18 words) — collapses if no note present.
+      const noteText = notesMap[item.id];
+      if (typeof noteText === "string" && noteText.trim()) {
+        const note = document.createElement("div");
+        note.className = "grid-card__note";
+        const words = noteText.trim().split(/\s+/);
+        const snippet = words.slice(0, 18).join(" ");
+        note.textContent = words.length > 18 ? snippet + "…" : snippet;
+        body.appendChild(note);
+      }
+
       const footer = document.createElement("div");
       footer.className = "grid-card__footer";
 
@@ -208,14 +185,6 @@
           ? "1 product"
           : products.length + " products";
       footer.appendChild(count);
-
-      const cats = categoriesOf(products);
-      cats.slice(0, 3).forEach((c) => {
-        const tag = document.createElement("span");
-        tag.className = "grid-card__tag";
-        tag.textContent = c;
-        footer.appendChild(tag);
-      });
 
       body.appendChild(footer);
       card.appendChild(body);
@@ -282,13 +251,7 @@
 
   function renderFilterBar() {
     const bar = $("filter-bar");
-    if (!bar) return;
-    const cats = unionCategories(allItems);
-    renderChipBar(bar, cats, listActiveCategory, (c) => {
-      listActiveCategory = c;
-      renderFilterBar();
-      renderGrid(allItems);
-    });
+    if (bar) { bar.innerHTML = ""; bar.hidden = true; }
   }
 
   function renderList() {
@@ -381,13 +344,6 @@
       row.appendChild(brand);
     }
 
-    if (product.category) {
-      const cat = document.createElement("span");
-      cat.className = "product-row__category chip";
-      cat.textContent = product.category;
-      row.appendChild(cat);
-    }
-
     const buy = document.createElement("a");
     buy.className = "product-row__buy";
     buy.href = formatSearchUrl(product.searchQuery || product.name || "");
@@ -438,15 +394,9 @@
     }
   }
 
-  function renderDetailFilterBar(item) {
+  function renderDetailFilterBar(_item) {
     const bar = $("detail-filter-bar");
-    if (!bar) return;
-    const cats = categoriesOf(item.products);
-    renderChipBar(bar, cats, detailActiveCategory, (c) => {
-      detailActiveCategory = c;
-      renderDetailFilterBar(item);
-      renderProductsList(item);
-    });
+    if (bar) { bar.innerHTML = ""; bar.hidden = true; }
   }
 
   let _notesStatusTimer = null;
@@ -454,6 +404,11 @@
     try {
       if (self.Scout.storage && typeof self.Scout.storage.setNote === "function") {
         await self.Scout.storage.setNote(id, value);
+      }
+      if (typeof value === "string" && value.length > 0) {
+        notesMap[id] = value;
+      } else {
+        delete notesMap[id];
       }
       const status = $("notes-status");
       if (status) {
@@ -479,13 +434,21 @@
     try {
       const v = item.video || {};
       const titleEl = $("video-title");
-      const channelEl = $("video-channel");
+      const channelLink = $("video-channel-link");
       const preview = $("video-preview");
       const thumb = $("video-thumb");
-      const watchLink = $("watch-on-youtube");
 
       if (titleEl) titleEl.textContent = v.title || "(untitled)";
-      if (channelEl) channelEl.textContent = v.channel || "";
+      if (channelLink) {
+        if (v.channel) {
+          channelLink.textContent = `${v.channel} ↗`;
+          channelLink.href = v.channelUrl ||
+            (v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : "#");
+          channelLink.hidden = false;
+        } else {
+          channelLink.hidden = true;
+        }
+      }
       if (preview) {
         preview.href = v.url || (v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : "#");
       }
@@ -502,11 +465,9 @@
           thumb.removeAttribute("src");
         }
       }
-      if (watchLink) {
-        watchLink.href = v.url || "#";
-        watchLink.target = "_blank";
-        watchLink.rel = "noopener noreferrer";
-      }
+
+      renderDescription(v);
+      renderComments(v);
 
       // Notes
       const notesInput = $("notes-input");
@@ -531,6 +492,72 @@
     }
   }
 
+  // ── Description + comments (always visible) ────────────────────────────
+
+  const DESC_COLLAPSED_CHARS = 420;
+
+  function renderDescription(v) {
+    const block = $("video-description-block");
+    const body = $("video-description");
+    const toggle = $("video-description-toggle");
+    if (!block || !body || !toggle) return;
+
+    const text = typeof v.description === "string" ? v.description.trim() : "";
+    if (!text) {
+      block.hidden = true;
+      return;
+    }
+    block.hidden = false;
+
+    const longer = text.length > DESC_COLLAPSED_CHARS;
+    body.dataset.expanded = "0";
+    body.textContent = longer ? text.slice(0, DESC_COLLAPSED_CHARS) + "…" : text;
+
+    if (longer) {
+      toggle.hidden = false;
+      toggle.textContent = "Show more";
+      toggle.onclick = () => {
+        const expanded = body.dataset.expanded === "1";
+        if (expanded) {
+          body.textContent = text.slice(0, DESC_COLLAPSED_CHARS) + "…";
+          body.dataset.expanded = "0";
+          toggle.textContent = "Show more";
+        } else {
+          body.textContent = text;
+          body.dataset.expanded = "1";
+          toggle.textContent = "Show less";
+        }
+      };
+    } else {
+      toggle.hidden = true;
+      toggle.onclick = null;
+    }
+  }
+
+  function renderComments(v) {
+    const block = $("video-comments-block");
+    const list = $("video-comments");
+    const countEl = $("video-comments-count");
+    if (!block || !list) return;
+
+    const comments = Array.isArray(v.topComments) ? v.topComments.filter(Boolean) : [];
+    if (comments.length === 0) {
+      block.hidden = true;
+      list.innerHTML = "";
+      if (countEl) countEl.textContent = "";
+      return;
+    }
+
+    block.hidden = false;
+    if (countEl) countEl.textContent = `(${comments.length})`;
+    list.innerHTML = "";
+    for (const c of comments) {
+      const li = document.createElement("li");
+      li.textContent = c;
+      list.appendChild(li);
+    }
+  }
+
   // ── Metadata panel ──────────────────────────────────────────────────────
 
   function buildDisclosure(summary, bodyEl) {
@@ -551,30 +578,7 @@
     const v = (item && item.video) || {};
     const sections = [];
 
-    // Description
-    if (typeof v.description === "string" && v.description.trim()) {
-      const body = document.createElement("div");
-      body.className = "metadata-body";
-      body.textContent = v.description;
-      sections.push({ title: "Description", node: body });
-    }
-
-    // Top comments
-    if (Array.isArray(v.topComments) && v.topComments.length > 0) {
-      const body = document.createElement("ul");
-      body.className = "metadata-body metadata-body--list";
-      for (const c of v.topComments) {
-        const li = document.createElement("li");
-        li.textContent = c;
-        body.appendChild(li);
-      }
-      sections.push({
-        title: `Top comments (${v.topComments.length})`,
-        node: body,
-      });
-    }
-
-    // Captured frame
+    // Captured frame — at save time, for context
     if (typeof v.currentFrameDataUrl === "string" && v.currentFrameDataUrl.startsWith("data:")) {
       const img = document.createElement("img");
       img.className = "metadata-frame";
