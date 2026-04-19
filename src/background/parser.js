@@ -206,7 +206,8 @@ Rules:
 - Mine comments for brand/source questions the creator may have answered ("what jeans are those?" → if referenced in description, include).
 - Deduplicate — merge near-duplicate mentions of the same item.
 - searchQuery: Google-Shopping-ready string, 3–6 lowercase keywords, no punctuation. Lead with brand if known.
-- timestamp: "m:ss" only if transcript/comments clearly pin a specific moment; otherwise null.
+- timestamp: "m:ss" ONLY when transcript/comments clearly pin a specific moment. Use null (not "0:00" or "N/A") if unknown.
+- brand: exact brand string when known, otherwise null. Do NOT write "Unknown", "N/A", or "None".
 - confidence: 0–1, your certainty it's a real searchable product. Include items ≥ 0.4.
 - Aim to return SOMETHING for any fashion/lifestyle/haul video. An empty array is only correct when the video is genuinely not about shoppable items (e.g. vlog with no visible products).
 - Respond with ONLY a valid JSON array of product objects. No prose, no markdown.
@@ -291,6 +292,16 @@ ${comments}`;
 
   // ─── Validate / coerce ─────────────────────────────────────────────────────
 
+  const NULLISH_STRINGS = new Set(["unknown", "n/a", "na", "none", "null", "0:00"]);
+
+  function normalizeStringField(v) {
+    if (typeof v !== "string") return null;
+    const t = v.trim();
+    if (!t) return null;
+    if (NULLISH_STRINGS.has(t.toLowerCase())) return null;
+    return t;
+  }
+
   function coerceProduct(p) {
     if (p === null || typeof p !== "object") return null;
     if (typeof p.name !== "string" || p.name.trim() === "") return null;
@@ -298,11 +309,11 @@ ${comments}`;
     if (typeof p.confidence !== "number") return null;
     return {
       name: p.name.trim(),
-      brand: typeof p.brand === "string" ? p.brand : null,
+      brand: normalizeStringField(p.brand),
       category: VALID_CATEGORIES.has(p.category) ? p.category : "other",
       searchQuery: p.searchQuery.trim(),
       confidence: p.confidence,
-      timestamp: typeof p.timestamp === "string" && p.timestamp.trim() ? p.timestamp.trim() : null,
+      timestamp: normalizeStringField(p.timestamp),
     };
   }
 
@@ -370,7 +381,7 @@ ${comments}`;
             responseMimeType: "application/json",
             responseSchema: GEMINI_RESPONSE_SCHEMA,
             temperature: 0.3,
-            maxOutputTokens: 4096,
+            maxOutputTokens: 8192,
           },
         }),
         signal: controller.signal,

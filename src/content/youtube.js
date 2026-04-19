@@ -217,14 +217,27 @@
         ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
         : "";
 
-      // Description — read textContent directly; do not click the expander
+      // Description — read textContent directly; do not click the expander.
+      // YouTube's DOM shifts — try newer container selectors first, then the
+      // legacy yt-formatted-string children, stopping at the first non-empty.
       let description = "";
       try {
-        const descEl =
-          document.querySelector("#description-inline-expander yt-formatted-string") ||
-          document.querySelector("ytd-text-inline-expander yt-formatted-string") ||
-          document.querySelector("#description yt-formatted-string");
-        description = (descEl?.textContent || "").slice(0, 4000);
+        const descSelectors = [
+          "#description-inline-expander yt-formatted-string",
+          "ytd-text-inline-expander yt-formatted-string",
+          "#description yt-formatted-string",
+          "#description-inline-expander",
+          "ytd-text-inline-expander",
+          "#description",
+        ];
+        for (const sel of descSelectors) {
+          const el = document.querySelector(sel);
+          const t = (el?.textContent || "").trim();
+          if (t && t.length > 20) {
+            description = t.slice(0, 4000);
+            break;
+          }
+        }
       } catch (_) {}
 
       // Best-effort frame + comments — both may be empty and that's fine
