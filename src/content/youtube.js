@@ -118,6 +118,58 @@
       return btn;
     }
 
+    // ─── Frame + comment scraping ────────────────────────────────────────────
+
+    /**
+     * Grab the current video frame as a JPEG data URL.
+     * If the canvas is tainted (no CORS) or the video isn't playing,
+     * returns null and we fall back to YouTube's auto-thumbnails.
+     */
+    function captureCurrentFrame() {
+      try {
+        const video =
+          document.querySelector("video.html5-main-video") ||
+          document.querySelector("video.video-stream") ||
+          document.querySelector("video");
+        if (!video || !video.videoWidth || !video.videoHeight) return null;
+        const maxW = 640;
+        const w = Math.min(video.videoWidth, maxW);
+        const h = Math.round((w * video.videoHeight) / video.videoWidth);
+        const canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return null;
+        ctx.drawImage(video, 0, 0, w, h);
+        return canvas.toDataURL("image/jpeg", 0.7);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    /**
+     * Read whatever comments are already loaded in the DOM.
+     * We don't force-scroll — too disruptive. Users who scrolled into
+     * comments contribute them; others just get a shorter pool.
+     * @returns {string[]}
+     */
+    function scrapeTopComments(maxN = 20) {
+      try {
+        const nodes = document.querySelectorAll(
+          "ytd-comment-thread-renderer #content-text, ytd-comment-view-model #content-text, #comments #content-text"
+        );
+        const out = [];
+        for (const n of nodes) {
+          const t = (n.textContent || "").trim().replace(/\s+/g, " ");
+          if (t && t.length > 3) out.push(t.slice(0, 500));
+          if (out.length >= maxN) break;
+        }
+        return out;
+      } catch (_) {
+        return [];
+      }
+    }
+
     // ─── Metadata extraction ─────────────────────────────────────────────────
 
     /**
@@ -175,7 +227,15 @@
         description = (descEl?.textContent || "").slice(0, 4000);
       } catch (_) {}
 
-      return { videoId, url, title, channel, channelUrl, thumbnailUrl, description, savedAt: Date.now() };
+      // Best-effort frame + comments — both may be empty and that's fine
+      const currentFrameDataUrl = captureCurrentFrame();
+      const topComments = scrapeTopComments(15);
+
+      return {
+        videoId, url, title, channel, channelUrl, thumbnailUrl, description,
+        currentFrameDataUrl, topComments,
+        savedAt: Date.now(),
+      };
     }
 
     // ─── Button injection ────────────────────────────────────────────────────

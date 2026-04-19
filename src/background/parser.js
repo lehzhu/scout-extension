@@ -133,7 +133,14 @@ self.Scout.parser = (() => {
   const SEPARATORS   = /\s*[\|:–—\/]\s*/;
 
   function heuristicExtract(videoMeta) {
-    const text = [videoMeta.description || "", videoMeta.title || ""].join("\n");
+    const commentText = Array.isArray(videoMeta.topComments)
+      ? videoMeta.topComments.join("\n")
+      : "";
+    const text = [
+      videoMeta.description || "",
+      videoMeta.title || "",
+      commentText,
+    ].join("\n");
     const lines = text.split(/\r?\n/);
     const products = [];
     const seen = new Set();
@@ -187,26 +194,99 @@ self.Scout.parser = (() => {
 
   // ─── Shared prompt helpers ─────────────────────────────────────────────────
 
-  const EXTRACTION_RULES = `You are a fashion product extraction assistant for a shopping extension.
+  const EXTRACTION_RULES = `You are a shopping-product extraction assistant.
+
+Your job: surface every searchable product a shopper might want from this YouTube video. Use ALL available signals — title, description, transcript, top viewer comments, AND any attached video frames (thumbnails, still captures).
+
+When frames are attached: look at garments, shoes, accessories, makeup, and visible products being held, worn, or demonstrated. Infer generic descriptors ("brown trench coat", "black leather loafers") when exact brand is unknown — shoppers can still search for these. Use visible logos or tags if readable.
 
 Rules:
-- Extract every distinct clothing item, shoe, accessory, or beauty product the creator wears, mentions, recommends, or links.
-- Only include items a shopper could realistically search for. Skip vague mentions without enough detail ("a cute top" → skip; "Reformation linen top" → include).
-- Include named brands whenever stated or clearly inferable from affiliate links.
+- Extract every distinct clothing item, shoe, accessory, beauty product, or physical item the creator wears, holds, demonstrates, mentions, recommends, or links.
+- Prefer specific descriptors: color + material + silhouette + item type ("cream ribbed wool turtleneck"). Brand when available or inferable from links/comments/visible tags.
+- Mine comments for brand/source questions the creator may have answered ("what jeans are those?" → if referenced in description, include).
 - Deduplicate — merge near-duplicate mentions of the same item.
-- searchQuery: Google-Shopping-ready string, brand + 2–5 descriptive keywords, lowercase, no punctuation beyond spaces.
-- timestamp: "m:ss" only if the transcript clearly introduces the item at a specific spoken moment; otherwise null.
-- confidence: 0–1, your certainty this is a real searchable product. Exclude items below 0.4.
-- If no fashion/product content exists, return an empty array.
+- searchQuery: Google-Shopping-ready string, 3–6 lowercase keywords, no punctuation. Lead with brand if known.
+- timestamp: "m:ss" only if transcript/comments clearly pin a specific moment; otherwise null.
+- confidence: 0–1, your certainty it's a real searchable product. Include items ≥ 0.4.
+- Aim to return SOMETHING for any fashion/lifestyle/haul video. An empty array is only correct when the video is genuinely not about shoppable items (e.g. vlog with no visible products).
 - Respond with ONLY a valid JSON array of product objects. No prose, no markdown.
 
 Product shape: {"name": string, "brand": string|null, "category": "top"|"bottom"|"dress"|"outerwear"|"shoes"|"bag"|"accessory"|"beauty"|"other", "searchQuery": string, "confidence": number, "timestamp": string|null}`;
 
-  function buildUserContent({ title, channel, description, transcriptText }) {
+  function buildUserContent({ title, channel, description, transcriptText, topComments }) {
+    const comments = Array.isArray(topComments) && topComments.length > 0
+      ? topComments.slice(0, 15).map((c, i) => `[${i + 1}] ${c}`).join("\n")
+      : "(none)";
     return `Video title: ${title}
 Channel: ${channel}
 Description: ${description || "(none)"}
-Transcript: ${transcriptText || "(no transcript available)"}`;
+Transcript: ${transcriptText || "(no transcript available)"}
+Top comments (may reveal products viewers asked about):
+${comments}`;
+  }
+
+  // ─── Image helpers (for vision-enabled extraction) ─────────────────────────
+
+  /**
+   * Fetch a remote image and convert to {mimeType, data} (base64).
+   * Returns null on any failure so callers can quietly omit.
+   * @param {string} url
+   * @param {AbortSignal} [signal]
+   */
+  async function fetchImageAsBase64(url, signal) {
+    try {
+      const res = await fetch(url, { credentials: "omit", signal });
+      if (!res.ok) return null;
+      const blob = await res.blob();
+      if (blob.size > 2_000_000) return null; // skip oversize
+      const mimeType = blob.type || "image/jpeg";
+      const buf = await blob.arrayBuffer();
+      const bytes = new Uint8Array(buf);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+      return { mimeType, data: btoa(binary) };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function dataUrlToInline(dataUrl) {
+    try {
+      const m = /^data:([^;]+);base64,(.+)$/.exec(dataUrl || "");
+      if (!m) return null;
+      return { mimeType: m[1], data: m[2] };
+    } catch (_) { return null; }
+  }
+
+  /**
+   * Assemble up to ~5 image parts: the live captured frame plus
+   * YouTube's auto-generated frames (0/1/2/3.jpg on i.ytimg.com).
+   * Fetched in parallel — any failures are dropped silently.
+   * @returns {Promise<Array<{mimeType: string, data: string}>>}
+   */
+  async function collectImageParts(videoMeta) {
+    const parts = [];
+    const fromFrame = dataUrlToInline(videoMeta.currentFrameDataUrl);
+    if (fromFrame) parts.push(fromFrame);
+
+    if (!videoMeta.videoId) return parts;
+
+    const urls = [
+      `https://i.ytimg.com/vi/${videoMeta.videoId}/maxresdefault.jpg`,
+      `https://i.ytimg.com/vi/${videoMeta.videoId}/1.jpg`,
+      `https://i.ytimg.com/vi/${videoMeta.videoId}/2.jpg`,
+      `https://i.ytimg.com/vi/${videoMeta.videoId}/3.jpg`,
+    ];
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const fetched = await Promise.all(
+      urls.map((u) => fetchImageAsBase64(u, controller.signal))
+    );
+    clearTimeout(timer);
+
+    for (const p of fetched) if (p) parts.push(p);
+    return parts.slice(0, 5);
   }
 
   // ─── Validate / coerce ─────────────────────────────────────────────────────
@@ -263,11 +343,17 @@ Transcript: ${transcriptText || "(no transcript available)"}`;
     },
   };
 
-  async function extractWithGemini({ videoMeta, transcriptText, apiKey, model }) {
+  async function extractWithGemini({ videoMeta, transcriptText, apiKey, model, imageParts }) {
     const userContent = buildUserContent({
       title: videoMeta.title, channel: videoMeta.channel,
       description: videoMeta.description, transcriptText,
+      topComments: videoMeta.topComments,
     });
+
+    const parts = [{ text: userContent }];
+    if (Array.isArray(imageParts)) {
+      for (const p of imageParts) parts.push({ inline_data: p });
+    }
 
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), 45000);
@@ -279,7 +365,7 @@ Transcript: ${transcriptText || "(no transcript available)"}`;
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: EXTRACTION_RULES }] },
-          contents: [{ role: "user", parts: [{ text: userContent }] }],
+          contents: [{ role: "user", parts }],
           generationConfig: {
             responseMimeType: "application/json",
             responseSchema: GEMINI_RESPONSE_SCHEMA,
@@ -313,11 +399,25 @@ Transcript: ${transcriptText || "(no transcript available)"}`;
 
   // ─── OAI-spec client (OpenRouter + OpenAI) ────────────────────────────────
 
-  async function extractWithOAI({ videoMeta, transcriptText, apiKey, model, baseUrl }) {
+  async function extractWithOAI({ videoMeta, transcriptText, apiKey, model, baseUrl, imageParts }) {
     const userContent = buildUserContent({
       title: videoMeta.title, channel: videoMeta.channel,
       description: videoMeta.description, transcriptText,
+      topComments: videoMeta.topComments,
     });
+
+    // OpenAI accepts multimodal content arrays with image_url parts.
+    // OpenRouter's free models often don't — keep text-only there.
+    const useImages = baseUrl === OPENAI_BASE && Array.isArray(imageParts) && imageParts.length > 0;
+    const userMessageContent = useImages
+      ? [
+          { type: "text", text: userContent },
+          ...imageParts.map((p) => ({
+            type: "image_url",
+            image_url: { url: `data:${p.mimeType};base64,${p.data}` },
+          })),
+        ]
+      : userContent;
 
     const controller = new AbortController();
     const timeoutId  = setTimeout(() => controller.abort(), 45000);
@@ -340,7 +440,7 @@ Transcript: ${transcriptText || "(no transcript available)"}`;
           model,
           messages: [
             { role: "system", content: EXTRACTION_RULES },
-            { role: "user",   content: userContent },
+            { role: "user",   content: userMessageContent },
           ],
           temperature: 0.3,
           max_tokens: 4096,
@@ -375,22 +475,34 @@ Transcript: ${transcriptText || "(no transcript available)"}`;
   async function extractProducts({ videoMeta, transcriptText, settings }) {
     const provider = settings?.provider || "none";
 
+    // Only fetch images when the provider can actually use them.
+    const visionCapable = provider === "gemini" || provider === "openai";
+    const imageParts = visionCapable ? await collectImageParts(videoMeta) : [];
+
     if (provider === "gemini") {
       if (!settings.geminiApiKey) throw new Error("Gemini API key not set — add it in Settings.");
       const model = settings.geminiModel || DEFAULT_MODELS.gemini;
-      return extractWithGemini({ videoMeta, transcriptText, apiKey: settings.geminiApiKey, model });
+      return extractWithGemini({
+        videoMeta, transcriptText, apiKey: settings.geminiApiKey, model, imageParts,
+      });
     }
 
     if (provider === "openrouter") {
       if (!settings.openrouterApiKey) throw new Error("OpenRouter API key not set — add it in Settings.");
       const model = settings.openrouterModel || DEFAULT_MODELS.openrouter;
-      return extractWithOAI({ videoMeta, transcriptText, apiKey: settings.openrouterApiKey, model, baseUrl: OPENROUTER_BASE });
+      return extractWithOAI({
+        videoMeta, transcriptText, apiKey: settings.openrouterApiKey, model,
+        baseUrl: OPENROUTER_BASE,
+      });
     }
 
     if (provider === "openai") {
       if (!settings.openaiApiKey) throw new Error("OpenAI API key not set — add it in Settings.");
       const model = settings.openaiModel || DEFAULT_MODELS.openai;
-      return extractWithOAI({ videoMeta, transcriptText, apiKey: settings.openaiApiKey, model, baseUrl: OPENAI_BASE });
+      return extractWithOAI({
+        videoMeta, transcriptText, apiKey: settings.openaiApiKey, model,
+        baseUrl: OPENAI_BASE, imageParts,
+      });
     }
 
     // provider === "none": heuristic extraction, always succeeds

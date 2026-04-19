@@ -1,13 +1,15 @@
 /**
  * @typedef {Object} VideoMeta
- * @property {string} videoId        - YouTube video ID (e.g. "dQw4w9WgXcQ")
- * @property {string} url            - Full watch URL
+ * @property {string} videoId               - YouTube video ID (e.g. "dQw4w9WgXcQ")
+ * @property {string} url                   - Full watch URL
  * @property {string} title
  * @property {string} channel
  * @property {string} channelUrl
  * @property {string} thumbnailUrl
- * @property {string} description    - May be truncated
- * @property {number} savedAt        - Unix ms
+ * @property {string} description           - May be truncated
+ * @property {string|null} [currentFrameDataUrl] - JPEG data URL of the playing frame, may be null
+ * @property {string[]} [topComments]       - Loaded DOM comments, capped at ~15
+ * @property {number} savedAt               - Unix ms
  */
 
 /**
