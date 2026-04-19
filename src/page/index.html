@@ -11,7 +11,7 @@
   <section id="list-view" class="view">
     <header class="page-header">
       <div class="page-header__brand">
-        <div class="scout-wordmark">Scout</div>
+        <a href="#" class="scout-wordmark scout-home-link" data-home-link>Scout</a>
       </div>
       <div class="header-actions">
         <button id="open-favourites-btn" class="btn-ghost" type="button">Favourites ♥</button>
@@ -37,13 +37,18 @@
   </section>
 
   <section id="detail-view" class="view" hidden>
+    <header class="page-header">
+      <div class="page-header__brand">
+        <a href="#" class="scout-wordmark scout-home-link" data-home-link>Scout</a>
+      </div>
+      <div class="header-actions">
+        <button type="button" id="prev-video-btn" class="btn-ghost">← Prev</button>
+        <button type="button" id="next-video-btn" class="btn-ghost">Next →</button>
+      </div>
+    </header>
     <div class="page-body detail-body">
       <div class="detail-nav">
         <a id="back-link" class="back-link" href="#">← All saves</a>
-        <div class="detail-nav__actions">
-          <button type="button" id="prev-video-btn" class="btn-ghost">← Prev</button>
-          <button type="button" id="next-video-btn" class="btn-ghost">Next →</button>
-        </div>
       </div>
 
       <div class="detail-layout">
@@ -106,7 +111,10 @@
 
   <section id="favourites-view" class="view" hidden>
     <header class="page-header">
-      <div class="page-header__brand"><div class="scout-wordmark">Scout — Favourites</div></div>
+      <div class="page-header__brand">
+        <a href="#" class="scout-wordmark scout-home-link" data-home-link>Scout</a>
+        <span class="scout-sublabel">Favourites</span>
+      </div>
       <div class="header-actions">
         <a class="btn-ghost" id="fav-back-link" href="#">← All saves</a>
       </div>

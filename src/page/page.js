@@ -1021,6 +1021,13 @@
     }
   }
 
+  function wireHomeLinks() {
+    try {
+      const links = document.querySelectorAll("[data-home-link]");
+      links.forEach((a) => a.addEventListener("click", goToAllSaves));
+    } catch (_) {}
+  }
+
   function wireDetailControls() {
     const back = $("back-link");
     if (back) back.addEventListener("click", goToAllSaves);
@@ -1093,6 +1100,7 @@
 
   wireListControls();
   wireDetailControls();
+  wireHomeLinks();
   wireStorageListener();
 
   window.addEventListener("popstate", () => {
