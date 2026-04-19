@@ -13,6 +13,7 @@ self.Scout.messaging = (() => {
     GET_INFLIGHT: "GET_INFLIGHT",       // popup → background   | no payload
     INFLIGHT_UPDATE: "INFLIGHT_UPDATE", // background → popup   | payload: InFlightItem[]
     GET_SAVED_ID: "GET_SAVED_ID",       // content → background | payload: {videoId} → {id: string|null}
+    REFRESH_DESCRIPTION: "REFRESH_DESCRIPTION", // page → background | payload: {id} → {ok, description}
   };
 
   /**

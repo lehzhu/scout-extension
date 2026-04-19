@@ -53,6 +53,7 @@ Scout.messaging.onMessage(MSG.CLEAR_ITEMS,   handleClearItems);
 Scout.messaging.onMessage(MSG.RETRY_ITEM,    handleRetryItem);
 Scout.messaging.onMessage(MSG.GET_INFLIGHT,  handleGetInFlight);
 Scout.messaging.onMessage(MSG.GET_SAVED_ID,  handleGetSavedId);
+Scout.messaging.onMessage(MSG.REFRESH_DESCRIPTION, handleRefreshDescription);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -256,6 +257,33 @@ async function handleGetSavedId(payload) {
     return { id: newest ? newest.id : null };
   } catch (_) {
     return { id: null };
+  }
+}
+
+async function handleRefreshDescription(payload) {
+  const id = payload && typeof payload.id === "string" ? payload.id : "";
+  if (!id) return { ok: false, error: "Invalid id" };
+  try {
+    const items = await Scout.storage.getItems();
+    const item = items.find((i) => i && i.id === id);
+    if (!item || !item.video || !item.video.videoId) {
+      return { ok: false, error: "Item not found" };
+    }
+    const fresh = await Scout.parser.fetchFullDescription(item.video.videoId);
+    if (!fresh || !fresh.trim()) {
+      return { ok: false, error: "Could not fetch description" };
+    }
+    if (fresh === item.video.description) {
+      return { ok: true, description: fresh, changed: false };
+    }
+    const updated = {
+      ...item,
+      video: { ...item.video, description: fresh },
+    };
+    try { await Scout.storage.replaceItem(id, updated); } catch (_) {}
+    return { ok: true, description: fresh, changed: true };
+  } catch (err) {
+    return { ok: false, error: err.message || "Refresh failed" };
   }
 }
 

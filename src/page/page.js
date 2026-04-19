@@ -607,6 +607,11 @@
       renderDescription(v);
       renderComments(v);
 
+      // Re-fetch description fresh from YouTube keyed on the canonical videoId.
+      // This heals saves from before the SPA-navigation fix that baked in the
+      // previous video's description. Non-blocking — updates in place.
+      refreshDescriptionIfStale(item);
+
       // Notes
       const notesInput = $("notes-input");
       if (notesInput) {
@@ -634,6 +639,33 @@
   // ── Description + comments (always visible) ────────────────────────────
 
   const DESC_COLLAPSED_CHARS = 420;
+
+  // In-memory de-dupe so Next/Prev nav doesn't re-fetch the same video
+  // every time the user flips through.
+  const _descRefreshedIds = new Set();
+
+  async function refreshDescriptionIfStale(item) {
+    try {
+      if (!item || !item.id || _descRefreshedIds.has(item.id)) return;
+      _descRefreshedIds.add(item.id);
+      const msging = self.Scout && self.Scout.messaging;
+      if (!msging) return;
+      const resp = await msging.sendMessage(msging.MSG.REFRESH_DESCRIPTION, { id: item.id });
+      if (!resp || !resp.ok) return;
+      // Only update the DOM if the user is still viewing the same item.
+      if (currentDetailId !== item.id) return;
+      if (typeof resp.description !== "string" || !resp.description.trim()) return;
+      if (resp.description === (item.video && item.video.description)) return;
+      // Refresh in place
+      const patched = { ...item.video, description: resp.description };
+      renderDescription(patched);
+      // Keep local cache in sync so Prev/Next don't show stale data
+      const idx = allItems.findIndex((i) => i && i.id === item.id);
+      if (idx !== -1) {
+        allItems[idx] = { ...allItems[idx], video: patched };
+      }
+    } catch (_) { /* non-fatal */ }
+  }
 
   function renderDescription(v) {
     const block = $("video-description-block");
