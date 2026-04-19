@@ -464,20 +464,26 @@
       const v = item.video || {};
       const titleEl = $("video-title");
       const channelEl = $("video-channel");
-      const iframe = $("video-iframe");
+      const preview = $("video-preview");
+      const thumb = $("video-thumb");
       const watchLink = $("watch-on-youtube");
 
       if (titleEl) titleEl.textContent = v.title || "(untitled)";
       if (channelEl) channelEl.textContent = v.channel || "";
-      if (iframe) {
+      if (preview) {
+        preview.href = v.url || (v.videoId ? `https://www.youtube.com/watch?v=${v.videoId}` : "#");
+      }
+      if (thumb) {
         if (v.videoId) {
-          // youtube-nocookie embeds accept chrome-extension:// origin;
-          // the standard youtube.com/embed does not (Error 153).
-          iframe.src =
-            "https://www.youtube-nocookie.com/embed/" +
-            encodeURIComponent(v.videoId);
+          const hi = `https://i.ytimg.com/vi/${v.videoId}/maxresdefault.jpg`;
+          const lo = v.thumbnailUrl || `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`;
+          thumb.onerror = () => {
+            thumb.onerror = null;
+            thumb.src = lo;
+          };
+          thumb.src = hi;
         } else {
-          iframe.removeAttribute("src");
+          thumb.removeAttribute("src");
         }
       }
       if (watchLink) {

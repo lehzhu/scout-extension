@@ -42,12 +42,17 @@
 
       <div class="detail-layout">
         <div class="detail-left">
-          <div class="video-embed">
-            <iframe id="video-iframe"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                    referrerpolicy="strict-origin-when-cross-origin"
-                    allowfullscreen></iframe>
-          </div>
+          <a id="video-preview" class="video-preview" target="_blank" rel="noopener noreferrer">
+            <img id="video-thumb" alt="" referrerpolicy="no-referrer" />
+            <span class="video-play-overlay" aria-hidden="true">
+              <span class="video-play-btn">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor" aria-hidden="true">
+                  <path d="M8 5v14l11-7z"/>
+                </svg>
+              </span>
+              <span class="video-play-label">Watch on YouTube</span>
+            </span>
+          </a>
 
           <div class="video-info">
             <h1 id="video-title"></h1>
