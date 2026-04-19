@@ -13,15 +13,17 @@ const { MSG } = self.Scout.messaging;
 const inFlight = new Map();
 
 function broadcastInFlight() {
-  try {
-    const p = chrome.runtime.sendMessage({
-      type: MSG.INFLIGHT_UPDATE,
-      payload: Array.from(inFlight.values()),
-    });
-    // MV3 returns a Promise that rejects when no receiver is listening
-    // (e.g. popup closed). Swallow that — the broadcast is best-effort.
-    if (p && typeof p.catch === "function") p.catch(() => {});
-  } catch (_) {}
+  // MV3's chrome.runtime.sendMessage rejects when no receiver is listening
+  // (e.g. popup closed). Broadcast is best-effort — wrap in async IIFE so
+  // no rejection or sync throw can escape.
+  (async () => {
+    try {
+      await chrome.runtime.sendMessage({
+        type: MSG.INFLIGHT_UPDATE,
+        payload: Array.from(inFlight.values()),
+      });
+    } catch (_) {}
+  })();
 }
 
 // ─── Message handlers ─────────────────────────────────────────────────────────
@@ -54,13 +56,16 @@ Scout.messaging.onMessage(MSG.GET_INFLIGHT,  handleGetInFlight);
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function sendProgress(tabId, status, message) {
-  try {
-    const p = chrome.tabs.sendMessage(tabId, {
-      type: MSG.SAVE_PROGRESS,
-      payload: { status, message },
-    });
-    if (p && typeof p.catch === "function") p.catch(() => {});
-  } catch (_) {}
+  // Tab may have navigated away or content script may be torn down.
+  // Best-effort — wrap in async IIFE so rejection/throw can never escape.
+  (async () => {
+    try {
+      await chrome.tabs.sendMessage(tabId, {
+        type: MSG.SAVE_PROGRESS,
+        payload: { status, message },
+      });
+    } catch (_) {}
+  })();
 }
 
 async function runExtraction(videoMeta, existingId, tabId) {
