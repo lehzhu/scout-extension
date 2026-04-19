@@ -144,12 +144,48 @@ self.Scout.storage = (() => {
   async function removeItem(id) {
     const items = await getItems();
     await chrome.storage.local.set({ [KEYS.ITEMS]: items.filter((i) => i.id !== id) });
+    try {
+      const notes = await getNotes();
+      if (id in notes) {
+        delete notes[id];
+        await chrome.storage.local.set({ "scout.notes": notes });
+      }
+    } catch (_) {}
   }
 
   /** @returns {Promise<void>} */
   async function clearItems() {
-    await chrome.storage.local.set({ [KEYS.ITEMS]: [] });
+    await chrome.storage.local.set({ [KEYS.ITEMS]: [], "scout.notes": {} });
   }
 
-  return { getSettings, setSettings, getItems, addItem, replaceItem, removeItem, clearItems };
+  async function getNotes() {
+    try {
+      const result = await chrome.storage.local.get("scout.notes");
+      const raw = result["scout.notes"];
+      return raw && typeof raw === "object" ? raw : {};
+    } catch (err) {
+      console.warn("[Scout] getNotes failed:", err.message);
+      return {};
+    }
+  }
+
+  async function setNote(id, text) {
+    if (typeof id !== "string" || id.length === 0) return;
+    const notes = await getNotes();
+    if (typeof text === "string" && text.length > 0) {
+      notes[id] = text;
+    } else {
+      delete notes[id];
+    }
+    try {
+      await chrome.storage.local.set({ "scout.notes": notes });
+    } catch (err) {
+      if (err.message && err.message.includes("QUOTA_BYTES")) {
+        throw new Error("Storage quota exceeded — shorten your notes.");
+      }
+      throw err;
+    }
+  }
+
+  return { getSettings, setSettings, getItems, addItem, replaceItem, removeItem, clearItems, getNotes, setNote };
 })();

@@ -51,11 +51,18 @@ body {
 /* ── Header ──────────────────────────────────────────────────────────────── */
 .header {
   display: flex;
-  align-items: baseline;
+  justify-content: space-between;
+  align-items: flex-start;
   gap: 6px;
   padding: 14px 16px 12px;
   border-bottom: 1px solid var(--scout-border);
   background: var(--scout-surface);
+}
+
+.header-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .scout-wordmark {

@@ -562,6 +562,15 @@
   renderPending(pendingSection, inFlightItems);
   await renderList();
 
+  const openBtn = document.getElementById("open-full-view");
+  if (openBtn) {
+    openBtn.addEventListener("click", () => {
+      try {
+        chrome.tabs.create({ url: chrome.runtime.getURL("src/page/index.html") });
+      } catch (_) {}
+    });
+  }
+
   chrome.runtime.onMessage.addListener((msg) => {
     try {
       if (msg.type === MSG.INFLIGHT_UPDATE) renderPending(pendingSection, msg.payload || []);

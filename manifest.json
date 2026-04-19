@@ -37,6 +37,12 @@
     "https://openrouter.ai/*",
     "https://api.openai.com/*"
   ],
+  "web_accessible_resources": [
+    {
+      "resources": ["src/page/index.html", "src/page/page.css", "src/page/page.js"],
+      "matches": ["<all_urls>"]
+    }
+  ],
   "icons": {
     "16": "src/icons/icon-16.png",
     "48": "src/icons/icon-48.png",

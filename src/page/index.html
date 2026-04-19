@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="color-scheme" content="light" />
+  <title>Scout — saves</title>
+  <link rel="stylesheet" href="page.css" />
+</head>
+<body>
+  <section id="list-view" class="view">
+    <header class="page-header">
+      <div class="page-header__brand">
+        <div class="scout-wordmark">Scout</div>
+        <div class="scout-sublabel">shopping list</div>
+      </div>
+      <div class="header-actions">
+        <button id="export-json-btn" type="button" class="btn-ghost">Export JSON</button>
+        <button id="export-csv-btn" type="button" class="btn-ghost">Export CSV</button>
+      </div>
+    </header>
+
+    <div class="page-body">
+      <div class="toolbar">
+        <input id="search-input" type="search" placeholder="Search videos, channels, products…" />
+        <div id="filter-bar" class="filter-bar"></div>
+        <button id="clear-all-btn" type="button" class="btn-ghost btn-ghost--danger">Clear all</button>
+      </div>
+
+      <div id="grid" class="grid"></div>
+
+      <div id="empty-state" class="empty-state" hidden>
+        <div class="empty-state__heading">No saves yet</div>
+        <div class="empty-state__hint">Save a YouTube video to get started.</div>
+      </div>
+    </div>
+  </section>
+
+  <section id="detail-view" class="view" hidden>
+    <div class="page-body detail-body">
+      <a id="back-link" class="back-link" href="#">← All saves</a>
+
+      <div class="detail-layout">
+        <div class="detail-left">
+          <div class="video-embed">
+            <iframe id="video-iframe" allowfullscreen></iframe>
+          </div>
+
+          <div class="video-info">
+            <h1 id="video-title"></h1>
+            <div id="video-channel" class="muted"></div>
+            <a id="watch-on-youtube" target="_blank" rel="noopener">Watch on YouTube ↗</a>
+          </div>
+
+          <div class="notes-block">
+            <div class="notes-block__head">
+              <label for="notes-input">Notes</label>
+              <span id="notes-status" class="notes-status"></span>
+            </div>
+            <textarea id="notes-input" placeholder="Your thoughts, sizes, links, reminders…"></textarea>
+          </div>
+        </div>
+
+        <div class="detail-right">
+          <div class="products-header">
+            <div class="products-header__title">
+              <h2>Products</h2>
+              <span id="products-count" class="products-count"></span>
+            </div>
+            <div id="detail-filter-bar" class="filter-bar"></div>
+          </div>
+
+          <div id="products-list" class="products-list"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <script src="../lib/types.js"></script>
+  <script src="../lib/storage.js"></script>
+  <script src="../lib/messaging.js"></script>
+  <script src="page.js"></script>
+</body>
+</html>
