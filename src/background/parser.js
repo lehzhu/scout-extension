@@ -286,6 +286,11 @@ HARD EXCLUSIONS — these are NEVER products, regardless of source:
 - Generic/structural words from descriptions: "Alternatives", "Options", "Details", "Links", "Chapters", "Timestamps", "Sponsors", "Music used".
 - Discount codes and promo phrases: "Use code XYZ", "20% off", "Giveaway winner".
 - Equipment/gear credits: "Camera I used", "Mic I used", "Editing software" — unless the video is explicitly a gear review.
+- Chapter/timestamp links: lines prefixed with → ► ▶ ➤ ➔ » or timestamped section titles like "→ 3 EASY HAIRSTYLES", "→ MORE BEAUTY". These are navigation markers, not products.
+- All-caps headers with multiple words: "JOIN THE LOVE", "5 MINS BIG PONYTAIL", "MORE BEAUTY". Real product names use mixed case.
+- Music credits: "Artist Name - Song Title". These appear under Music / Song / Credits sections.
+- Bare technique/style nouns: "ponytail", "braid", "updo", "hairstyle", "outfit", "look". These are techniques, not shoppable items. Hair *products* (shampoo, hair ties, clips) are fine.
+- Truncated or malformed strings: trailing dash ("Wild Cherry -"), unbalanced parens ("ponytail (code"). If you can't produce a clean complete name, skip the item.
 
 Rules:
 - Extract every distinct item from any of the three sources. Aim HIGH on recall: a fashion/haul/lookbook video should return 8–30 items, not 1.
@@ -543,7 +548,48 @@ ${comments}${imagesNote}`;
 
   // Creator self-promo / social CTAs — never products.
   // Matches "check out my 2nd channel", "like my facebook page", "follow me on IG", etc.
-  const PROMO_NAME_RX = /\b(?:my\s+(?:channel|page|blog|newsletter|shop|store|discord|patreon|instagram|ig|twitter|x|tiktok|facebook|fb|youtube|yt|podcast)|link\s+in\s+bio|links?\s+(?:in|below|above)|subscribe|follow\s+(?:me|us)|like\s+(?:my|the)|visit\s+(?:my|our)|join\s+(?:my|our)|check\s+out\s+(?:my|our)|use\s+code|promo\s+code|discount\s+code|\d+%\s*off|giveaway)\b/i;
+  const PROMO_NAME_RX = /\b(?:my\s+(?:channel|page|blog|newsletter|shop|store|discord|patreon|instagram|ig|twitter|x|tiktok|facebook|fb|youtube|yt|podcast)|link\s+in\s+bio|links?\s+(?:in|below|above)|subscribe|follow\s+(?:me|us|the|for)|like\s+(?:my|the)|visit\s+(?:my|our)|join\s+(?:my|our|us|the)|check\s+out\s+(?:my|our)|use\s+code|promo\s+code|discount\s+code|\d+%\s*off|giveaway|the\s+love)\b/i;
+
+  // Arrow/bullet prefixes mean "this is a chapter link", not a product.
+  // YouTube descriptions commonly use: → ► ▶ ⇒ ➤ ➔ ➜ » › •
+  const ARROW_PREFIX_RX = /^\s*[→►▶⇒➤➔➜»›•◆◇♦]+\s*/;
+
+  // Truncated fragments: trailing dash (music credit chopped off) or
+  // unbalanced opening paren ("ponytail (code" → discount code truncated).
+  const TRAILING_DASH_RX = /[\-–—]\s*$/;
+  function isUnbalancedParen(str) {
+    const open = (str.match(/\(/g) || []).length;
+    const close = (str.match(/\)/g) || []).length;
+    return open !== close;
+  }
+
+  // Multi-word ALL-CAPS candidate = video section header / chapter title,
+  // never a product name. "3 EASY HAIRSTYLES", "MORE BEAUTY", "JOIN THE LOVE".
+  // Single-word all-caps (brand like "NIKE") or short 2-word brands are
+  // allowed; length+digit heuristic catches the header pattern.
+  function isAllCapsHeader(str) {
+    const t = str.trim();
+    if (t.length < 8) return false;
+    const letters = t.replace(/[^A-Za-z]/g, "");
+    if (!letters || letters !== letters.toUpperCase()) return false;
+    const wordCount = t.split(/\s+/).filter((w) => /[A-Z]/.test(w)).length;
+    return wordCount >= 2;
+  }
+
+  // Style/technique nouns — not shoppable on their own.
+  // A product variant ("ponytail holder", "braid clip") still passes because
+  // those have >1 word; this only catches the bare noun.
+  const STYLE_NOUN_RX = /^(?:ponytail|ponytails|braid|braids|bun|buns|updo|updos|hairstyle|hairstyles|style|styling|tutorial|tutorials|outfit|outfits|vibe|vibes|aesthetic|aesthetics|technique|techniques|routine|routines)$/i;
+
+  // Music-credit shape: "Artist - Song" or with trailing fragment.
+  // Description music sections lead to titles like "Mr. Chase - Wild Cherry".
+  // Without a known product category word, treat double-hyphen shape as music.
+  function looksLikeMusicCredit(str) {
+    const parts = str.split(/\s[-–—]\s/);
+    if (parts.length < 2) return false;
+    // No product-category word anywhere → likely a music credit
+    return !CATEGORY_PATTERNS.some(([rx]) => rx.test(str));
+  }
 
   // Sentence fragments from transcript / comments that aren't noun phrases.
   // Names should start with an adjective or noun, not an adverb/verb/conjunction.
@@ -564,8 +610,17 @@ ${comments}${imagesNote}`;
     if (typeof p.searchQuery !== "string" || p.searchQuery.trim() === "") return null;
     if (typeof p.confidence !== "number") return null;
 
-    const name = p.name.trim();
+    // Strip leading arrows before running further checks — also a signal
+    // that this was a chapter link, but normalize first in case the rest
+    // happens to be legitimate (rare but possible).
+    let name = p.name.trim();
+    const hadArrowPrefix = ARROW_PREFIX_RX.test(name);
+    name = name.replace(ARROW_PREFIX_RX, "").trim();
     const searchQuery = p.searchQuery.trim();
+
+    // Arrow-prefixed names are almost always chapter/timestamp links,
+    // not products. Reject unless what's left is clearly a branded product.
+    if (hadArrowPrefix) return null;
 
     // Reject placeholder / non-unique names that would search poorly
     if (PLACEHOLDER_NAME_RX.test(name)) return null;
@@ -581,6 +636,19 @@ ${comments}${imagesNote}`;
 
     // Reject generic section labels from descriptions
     if (SECTION_LABEL_RX.test(name)) return null;
+
+    // Reject truncated fragments (trailing dash, unbalanced parens)
+    if (TRAILING_DASH_RX.test(name)) return null;
+    if (isUnbalancedParen(name)) return null;
+
+    // Reject multi-word ALL-CAPS headers ("3 EASY HAIRSTYLES", "JOIN THE LOVE")
+    if (isAllCapsHeader(name)) return null;
+
+    // Reject bare style/technique nouns ("ponytail", "braid")
+    if (STYLE_NOUN_RX.test(name)) return null;
+
+    // Reject music-credit shape ("Artist - Title" with no product word)
+    if (looksLikeMusicCredit(name)) return null;
 
     // Require at least 2 alphabetic words in EITHER name or searchQuery —
     // a single-word product like "dress" is not Google-Shopping-ready.

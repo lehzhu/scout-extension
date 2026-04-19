@@ -1028,6 +1028,31 @@
     } catch (_) {}
   }
 
+  async function deleteCurrentSave() {
+    if (!currentDetailId) return;
+    const ok = window.confirm("Delete this save? This can't be undone.");
+    if (!ok) return;
+    const id = currentDetailId;
+    const btn = $("delete-save-btn");
+    if (btn) btn.disabled = true;
+    try {
+      const msging = self.Scout && self.Scout.messaging;
+      if (!msging) return;
+      const resp = await msging.sendMessage(msging.MSG.REMOVE_ITEM, { id });
+      if (!resp || !resp.ok) {
+        if (btn) btn.disabled = false;
+        window.alert("Couldn't delete — please try again.");
+        return;
+      }
+      // Drop from local cache and route back to list
+      allItems = allItems.filter((i) => !i || i.id !== id);
+      goToAllSaves();
+    } catch (err) {
+      if (btn) btn.disabled = false;
+      console.warn("[Scout] delete failed:", err && err.message);
+    }
+  }
+
   function wireDetailControls() {
     const back = $("back-link");
     if (back) back.addEventListener("click", goToAllSaves);
@@ -1047,6 +1072,9 @@
         navigateToDetailByOffset(-1);
       });
     }
+
+    const delBtn = $("delete-save-btn");
+    if (delBtn) delBtn.addEventListener("click", deleteCurrentSave);
 
     const favBack = $("fav-back-link");
     if (favBack) favBack.addEventListener("click", goToAllSaves);
