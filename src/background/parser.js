@@ -214,16 +214,23 @@ Rules:
 
 Product shape: {"name": string, "brand": string|null, "category": "top"|"bottom"|"dress"|"outerwear"|"shoes"|"bag"|"accessory"|"beauty"|"other", "searchQuery": string, "confidence": number, "timestamp": string|null}`;
 
-  function buildUserContent({ title, channel, description, transcriptText, topComments }) {
+  function buildUserContent({ title, channel, description, transcriptText, topComments, storyboard }) {
     const comments = Array.isArray(topComments) && topComments.length > 0
       ? topComments.slice(0, 15).map((c, i) => `[${i + 1}] ${c}`).join("\n")
       : "(none)";
+
+    let imagesNote = "";
+    if (storyboard && storyboard.sheetCount) {
+      const secs = Math.max(1, Math.round((storyboard.intervalMs || 0) / 1000));
+      imagesNote = `\nAttached images: ${storyboard.sheetCount} timeline mosaic sheet(s), each a ${storyboard.cols}×${storyboard.rows} grid of small frames sampled ~every ${secs}s across the full video. Read the grid cells left-to-right, top-to-bottom as the video progresses. Total ~${storyboard.totalFramesApprox} frames covering the whole timeline — use them to identify every distinct garment, shoe, accessory, or product that appears, including items shown only briefly.`;
+    }
+
     return `Video title: ${title}
 Channel: ${channel}
 Description: ${description || "(none)"}
 Transcript: ${transcriptText || "(no transcript available)"}
 Top comments (may reveal products viewers asked about):
-${comments}`;
+${comments}${imagesNote}`;
   }
 
   // ─── Image helpers (for vision-enabled extraction) ─────────────────────────
@@ -259,26 +266,142 @@ ${comments}`;
     } catch (_) { return null; }
   }
 
+  // ─── Storyboard sheet sampling ────────────────────────────────────────────
+  // YouTube publishes a `playerStoryboardSpecRenderer.spec` string on every
+  // watch page that describes 1-3 levels of seek-preview mosaics, each a grid
+  // of tiny frames covering the full video timeline. That's our dense source.
+
+  const STORYBOARD_MAX_SHEETS = 18;
+
+  async function fetchPlayerResponse(videoId) {
+    try {
+      const res = await fetch(
+        `https://www.youtube.com/watch?v=${videoId}&hl=en`,
+        { credentials: "omit" }
+      );
+      if (!res.ok) return null;
+      const html = await res.text();
+      return extractPlayerResponse(html);
+    } catch (_) { return null; }
+  }
+
   /**
-   * Assemble up to ~5 image parts: the live captured frame plus
-   * YouTube's auto-generated frames (0/1/2/3.jpg on i.ytimg.com).
-   * Fetched in parallel — any failures are dropped silently.
-   * @returns {Promise<Array<{mimeType: string, data: string}>>}
+   * Parse the `|`-separated spec into levels.
+   * Base URL contains $L and $N placeholders; each level appends its own sigh.
+   * @returns {{baseUrl: string, levels: Array<{level:number,width:number,height:number,count:number,cols:number,rows:number,intervalMs:number,sigh:string,sheets:number}>} | null}
+   */
+  function parseStoryboardSpec(spec) {
+    if (typeof spec !== "string" || !spec.includes("|")) return null;
+    const parts = spec.split("|");
+    const baseUrl = parts[0];
+    if (!baseUrl.includes("$L") || !baseUrl.includes("$N")) return null;
+    const levels = [];
+    for (let i = 1; i < parts.length; i++) {
+      const f = parts[i].split("#");
+      if (f.length < 6) continue;
+      const width = +f[0], height = +f[1], count = +f[2];
+      const cols = +f[3] || 5, rows = +f[4] || 5;
+      const intervalMs = +f[5] || 0;
+      const sigh = f[7] || f[6] || "";
+      if (!width || !height || !count || !cols || !rows || !sigh) continue;
+      const perSheet = cols * rows;
+      const sheets = Math.max(1, Math.ceil(count / perSheet));
+      levels.push({ level: i - 1, width, height, count, cols, rows, intervalMs, sigh, sheets });
+    }
+    return levels.length ? { baseUrl, levels } : null;
+  }
+
+  /**
+   * Pick the densest usable level that fits within sheet cap.
+   * User preference: parse more rather than less.
+   */
+  function selectStoryboardLevel(levels, maxSheets) {
+    // Candidates: drop degenerate interval=0 unless it's the only option.
+    const real = levels.filter((l) => l.intervalMs > 0 && l.sheets > 0);
+    const pool = real.length ? real : levels;
+
+    // Sort by density (highest count first)
+    const byDensity = [...pool].sort((a, b) => b.count - a.count);
+
+    // Densest that fits
+    for (const lvl of byDensity) {
+      if (lvl.sheets <= maxSheets) return { ...lvl, sampled: false };
+    }
+    // Even densest doesn't fit — sample `maxSheets` evenly from it.
+    const densest = byDensity[0];
+    return { ...densest, sampled: true, sampleCount: maxSheets };
+  }
+
+  function sheetUrl(baseUrl, level, sheetN, sigh) {
+    let u = baseUrl.replace(/\$L/g, String(level)).replace(/\$N/g, String(sheetN));
+    u += (u.includes("?") ? "&" : "?") + "sigh=" + encodeURIComponent(sigh);
+    return u;
+  }
+
+  async function collectStoryboardParts(videoId) {
+    const pr = await fetchPlayerResponse(videoId);
+    const spec = pr?.storyboards?.playerStoryboardSpecRenderer?.spec;
+    const parsed = parseStoryboardSpec(spec);
+    if (!parsed) return null;
+    const sel = selectStoryboardLevel(parsed.levels, STORYBOARD_MAX_SHEETS);
+    if (!sel) return null;
+
+    const sheetIdx = sel.sampled
+      ? Array.from({ length: sel.sampleCount }, (_, i) =>
+          Math.floor((i * sel.sheets) / sel.sampleCount))
+      : Array.from({ length: sel.sheets }, (_, i) => i);
+
+    const urls = sheetIdx.map((n) => sheetUrl(parsed.baseUrl, sel.level, n, sel.sigh));
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 15000);
+    const fetched = await Promise.all(
+      urls.map((u) => fetchImageAsBase64(u, controller.signal))
+    );
+    clearTimeout(timer);
+
+    const parts = fetched.filter(Boolean);
+    if (parts.length === 0) return null;
+    return {
+      parts,
+      meta: {
+        level: sel.level,
+        cols: sel.cols,
+        rows: sel.rows,
+        intervalMs: sel.intervalMs,
+        sheetCount: parts.length,
+        framesPerSheet: sel.cols * sel.rows,
+        totalFramesApprox: Math.min(sel.count, parts.length * sel.cols * sel.rows),
+      },
+    };
+  }
+
+  /**
+   * Assemble image parts for the extraction call.
+   * Order of preference: storyboard mosaics (full timeline coverage),
+   * then YouTube auto-thumbnails as fallback. Current-frame always first.
+   * @returns {Promise<{parts: Array<{mimeType:string,data:string}>, storyboard: object|null}>}
    */
   async function collectImageParts(videoMeta) {
+    /** @type {Array<{mimeType:string,data:string}>} */
     const parts = [];
     const fromFrame = dataUrlToInline(videoMeta.currentFrameDataUrl);
     if (fromFrame) parts.push(fromFrame);
 
-    if (!videoMeta.videoId) return parts;
+    if (!videoMeta.videoId) return { parts, storyboard: null };
 
+    const sb = await collectStoryboardParts(videoMeta.videoId);
+    if (sb && sb.parts.length > 0) {
+      for (const p of sb.parts) parts.push(p);
+      return { parts, storyboard: sb.meta };
+    }
+
+    // Fallback: static auto-thumbnails
     const urls = [
       `https://i.ytimg.com/vi/${videoMeta.videoId}/maxresdefault.jpg`,
       `https://i.ytimg.com/vi/${videoMeta.videoId}/1.jpg`,
       `https://i.ytimg.com/vi/${videoMeta.videoId}/2.jpg`,
       `https://i.ytimg.com/vi/${videoMeta.videoId}/3.jpg`,
     ];
-
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 8000);
     const fetched = await Promise.all(
@@ -287,7 +410,7 @@ ${comments}`;
     clearTimeout(timer);
 
     for (const p of fetched) if (p) parts.push(p);
-    return parts.slice(0, 5);
+    return { parts: parts.slice(0, 5), storyboard: null };
   }
 
   // ─── Validate / coerce ─────────────────────────────────────────────────────
@@ -329,7 +452,7 @@ ${comments}`;
     const products = parsed
       .map(coerceProduct)
       .filter((p) => p !== null && p.confidence >= 0.4)
-      .slice(0, 25);
+      .slice(0, 150);
     if (beforeFilter > 0 && products.length === 0) {
       console.warn("[Scout] all", beforeFilter, "items filtered out after validation");
     }
@@ -354,11 +477,12 @@ ${comments}`;
     },
   };
 
-  async function extractWithGemini({ videoMeta, transcriptText, apiKey, model, imageParts }) {
+  async function extractWithGemini({ videoMeta, transcriptText, apiKey, model, imageParts, storyboard }) {
     const userContent = buildUserContent({
       title: videoMeta.title, channel: videoMeta.channel,
       description: videoMeta.description, transcriptText,
       topComments: videoMeta.topComments,
+      storyboard,
     });
 
     const parts = [{ text: userContent }];
@@ -410,11 +534,12 @@ ${comments}`;
 
   // ─── OAI-spec client (OpenRouter + OpenAI) ────────────────────────────────
 
-  async function extractWithOAI({ videoMeta, transcriptText, apiKey, model, baseUrl, imageParts }) {
+  async function extractWithOAI({ videoMeta, transcriptText, apiKey, model, baseUrl, imageParts, storyboard }) {
     const userContent = buildUserContent({
       title: videoMeta.title, channel: videoMeta.channel,
       description: videoMeta.description, transcriptText,
       topComments: videoMeta.topComments,
+      storyboard,
     });
 
     // OpenAI accepts multimodal content arrays with image_url parts.
@@ -488,13 +613,15 @@ ${comments}`;
 
     // Only fetch images when the provider can actually use them.
     const visionCapable = provider === "gemini" || provider === "openai";
-    const imageParts = visionCapable ? await collectImageParts(videoMeta) : [];
+    const { parts: imageParts, storyboard } = visionCapable
+      ? await collectImageParts(videoMeta)
+      : { parts: [], storyboard: null };
 
     if (provider === "gemini") {
       if (!settings.geminiApiKey) throw new Error("Gemini API key not set — add it in Settings.");
       const model = settings.geminiModel || DEFAULT_MODELS.gemini;
       return extractWithGemini({
-        videoMeta, transcriptText, apiKey: settings.geminiApiKey, model, imageParts,
+        videoMeta, transcriptText, apiKey: settings.geminiApiKey, model, imageParts, storyboard,
       });
     }
 
@@ -512,7 +639,7 @@ ${comments}`;
       const model = settings.openaiModel || DEFAULT_MODELS.openai;
       return extractWithOAI({
         videoMeta, transcriptText, apiKey: settings.openaiApiKey, model,
-        baseUrl: OPENAI_BASE, imageParts,
+        baseUrl: OPENAI_BASE, imageParts, storyboard,
       });
     }
 
