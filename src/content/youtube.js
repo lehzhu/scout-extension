@@ -89,21 +89,26 @@
       btn.id = "scout-save-btn";
       btn.className = "scout-save-btn";
 
-      // Inline styles — avoids CSS specificity fights with YouTube
+      // Inline styles — pill-shaped to match YouTube's action row buttons
+      // (Subscribe, Like, Share). Avoids CSS specificity fights.
       Object.assign(btn.style, {
         background: "#0F0F0F",
         color: "#FFFFFF",
-        padding: "10px 16px",
-        borderRadius: "12px",
+        padding: "0 16px",
+        height: "36px",
+        borderRadius: "18px",
         fontWeight: "600",
-        fontSize: "13px",
-        fontFamily: '-apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Helvetica, Arial, sans-serif',
+        fontSize: "14px",
+        fontFamily: '"Roboto", "Arial", sans-serif',
         border: "0",
         cursor: "pointer",
-        margin: "8px 0",
-        display: "inline-block",
-        lineHeight: "1.4",
+        margin: "0 8px",
+        display: "inline-flex",
+        alignItems: "center",
+        whiteSpace: "nowrap",
+        lineHeight: "1",
         transition: "background 0.15s",
+        verticalAlign: "middle",
       });
 
       btn.textContent = "★ Save to Scout";
@@ -261,56 +266,53 @@
 
       _injecting = true;
       try {
-        // Wait for the title area to exist (YouTube renders async)
-        const anchor =
-          (await waitForElement("#above-the-fold #title")) ||
-          (await waitForElement("#above-the-fold", 3000));
+        // Preferred: the owner row inside #top-row — Subscribe lives there,
+        // and inserting after #owner places us in the gap between Subscribe
+        // and the Like/Share/... cluster in #actions.
+        const owner =
+          (await waitForElement("ytd-watch-metadata #top-row #owner", 3000)) ||
+          (await waitForElement("#owner", 2000));
 
-        if (!anchor) {
-          warnOnce("no-anchor", "could not find title anchor — button not injected");
-          return; // silently exit — no button, no crash
+        // Fallback: title area (old placement) if the action row isn't there.
+        const titleAnchor =
+          owner ? null : ((await waitForElement("#above-the-fold #title")) ||
+                          (await waitForElement("#above-the-fold", 3000)));
+
+        if (!owner && !titleAnchor) {
+          warnOnce("no-anchor", "could not find injection anchor — button not injected");
+          return;
         }
 
         // Re-check after the await — another yt-navigate-finish may have
         // already injected while we were waiting.
         if (document.getElementById("scout-save-btn")) return;
 
-        await _doInject(anchor);
+        await _doInject(owner, titleAnchor);
       } finally {
         _injecting = false;
       }
     }
 
-    async function _doInject(anchor) {
+    async function _doInject(owner, titleAnchor) {
       const btn = createButton();
 
-      // Listen for progress messages from background
+      // Progress messages: the button shows a green checkmark optimistically
+      // on click, so we only surface terminal "error" state here. The popup
+      // and saves list still reflect the real transcript/extraction progress.
       onMessage(MSG.SAVE_PROGRESS, async (payload) => {
         try {
           const liveBtn = document.getElementById("scout-save-btn");
           if (!liveBtn) return;
-          switch (payload?.status) {
-            case "fetching-transcript":
-              applyBtnState(liveBtn, "saving", "Reading transcript…");
-              break;
-            case "extracting-products":
-              applyBtnState(liveBtn, "saving", "Finding products…");
-              break;
-            case "done":
-              showSaved(liveBtn);
-              break;
-            case "error":
-              applyBtnState(liveBtn, "error", payload.message ? `⚠ ${payload.message}` : undefined);
-              break;
+          if (payload?.status === "error") {
+            applyBtnState(liveBtn, "error", payload.message ? `⚠ ${payload.message}` : undefined);
+            delete liveBtn.dataset.scoutPending;
           }
         } catch (_) {}
       });
 
       btn.addEventListener("click", async () => {
-        // Dedupe rapid double-clicks: if already saving, ignore
-        if (btn.disabled) return;
-
-        applyBtnState(btn, "saving");
+        // Dedupe rapid double-clicks
+        if (btn.dataset.scoutPending === "1") return;
 
         let meta;
         try {
@@ -325,61 +327,46 @@
           return;
         }
 
-        let response;
+        // Optimistic UX: flip to green checkmark immediately. Extraction
+        // runs in the background; progress messages will update state only
+        // if something actually fails.
+        btn.dataset.scoutPending = "1";
+        applyBtnState(btn, "saved");
+
         try {
-          response = await sendMessage(MSG.SAVE_VIDEO, meta);
+          await sendMessage(MSG.SAVE_VIDEO, meta);
         } catch (_) {
-          // sendMessage now always resolves, but be defensive
-          response = { ok: false, error: "No receiver" };
+          // sendMessage always resolves in practice; ignore
         }
 
-        if (!response || typeof response !== "object") {
-          applyBtnState(btn, "error");
-          return;
-        }
-
-        if (!response.ok) {
-          if (response.error === "No receiver") {
-            // Service worker is asleep or extension was reloaded
-            applyBtnState(btn, "error", "Extension reloading — try again");
-            setTimeout(() => {
-              const liveBtn = document.getElementById("scout-save-btn");
-              if (liveBtn && liveBtn.textContent === "Extension reloading — try again") {
-                applyBtnState(liveBtn, "default");
-              }
-            }, 2000);
-          } else {
-            const msg = response.error ? `⚠ ${response.error}` : undefined;
-            applyBtnState(btn, "error", msg);
-          }
-          return;
-        }
-
-        showSaved(btn);
+        // Keep the "Saved" state visible for a moment, then return to default
+        // so the user can save a different video. The detail-view progress
+        // still lives in the popup / saves list.
+        setTimeout(() => {
+          try {
+            const liveBtn = document.getElementById("scout-save-btn");
+            if (liveBtn) applyBtnState(liveBtn, "default");
+            if (liveBtn) delete liveBtn.dataset.scoutPending;
+          } catch (_) {}
+        }, 1800);
       });
 
-      // Insert after the title's h1 (or as first child of #above-the-fold)
+      // Preferred: insert right after #owner so we land between Subscribe
+      // and the Like cluster. Fallback: after the title h1.
       try {
-        const h1 = anchor.querySelector("h1") || anchor;
-        if (h1.parentNode) {
-          h1.parentNode.insertBefore(btn, h1.nextSibling);
-        } else {
-          anchor.appendChild(btn);
+        if (owner && owner.parentNode) {
+          owner.parentNode.insertBefore(btn, owner.nextSibling);
+        } else if (titleAnchor) {
+          const h1 = titleAnchor.querySelector("h1") || titleAnchor;
+          if (h1.parentNode) {
+            h1.parentNode.insertBefore(btn, h1.nextSibling);
+          } else {
+            titleAnchor.appendChild(btn);
+          }
         }
       } catch (_) {
         // DOM insertion failed — don't throw
       }
-    }
-
-    function showSaved(btn) {
-      applyBtnState(btn, "saved");
-      setTimeout(() => {
-        try {
-          if (document.getElementById("scout-save-btn") === btn) {
-            applyBtnState(btn, "default");
-          }
-        } catch (_) {}
-      }, 2000);
     }
 
     // ─── SPA-aware entry point ───────────────────────────────────────────────

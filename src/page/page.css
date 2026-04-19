@@ -635,6 +635,105 @@ body {
 }
 .products-list::-webkit-scrollbar-thumb:hover { background: var(--scout-chip-bg-hover); }
 
+/* ── Metadata panel ──────────────────────────────────────────────────────── */
+.metadata-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.metadata-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--scout-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 2px;
+}
+
+.metadata-disclosure {
+  border: 1px solid var(--scout-border);
+  border-radius: var(--radius-md);
+  background: var(--scout-surface);
+  overflow: hidden;
+}
+
+.metadata-disclosure > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--scout-text);
+  position: relative;
+  user-select: none;
+}
+
+.metadata-disclosure > summary::-webkit-details-marker { display: none; }
+
+.metadata-disclosure > summary::after {
+  content: "+";
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 16px;
+  color: var(--scout-text-tertiary);
+  font-weight: 400;
+}
+
+.metadata-disclosure[open] > summary::after { content: "–"; }
+
+.metadata-disclosure[open] > summary {
+  border-bottom: 1px solid var(--scout-border);
+}
+
+.metadata-body {
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--scout-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.metadata-body--list {
+  list-style: disc;
+  padding: 12px 14px 12px 32px;
+}
+
+.metadata-body--list li + li { margin-top: 8px; }
+
+.metadata-frame {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 0;
+}
+
+.metadata-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 14px;
+}
+
+.metadata-facts dt {
+  font-weight: 500;
+  color: var(--scout-text-secondary);
+}
+
+.metadata-facts dd a { color: var(--scout-text); word-break: break-all; }
+
+.metadata-json {
+  background: var(--scout-surface-alt);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+}
+
 /* ── Responsive tweaks ───────────────────────────────────────────────────── */
 @media (max-width: 640px) {
   :root { --gutter-x: 18px; --gutter-y: 18px; }

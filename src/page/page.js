@@ -525,8 +525,110 @@
 
       renderDetailFilterBar(item);
       renderProductsList(item);
+      renderMetadata(item);
     } catch (err) {
       console.warn("[Scout] renderDetail failed:", err && err.message);
+    }
+  }
+
+  // ── Metadata panel ──────────────────────────────────────────────────────
+
+  function buildDisclosure(summary, bodyEl) {
+    const d = document.createElement("details");
+    d.className = "metadata-disclosure";
+    const s = document.createElement("summary");
+    s.textContent = summary;
+    d.appendChild(s);
+    d.appendChild(bodyEl);
+    return d;
+  }
+
+  function renderMetadata(item) {
+    const root = $("video-metadata");
+    if (!root) return;
+    root.innerHTML = "";
+
+    const v = (item && item.video) || {};
+    const sections = [];
+
+    // Description
+    if (typeof v.description === "string" && v.description.trim()) {
+      const body = document.createElement("div");
+      body.className = "metadata-body";
+      body.textContent = v.description;
+      sections.push({ title: "Description", node: body });
+    }
+
+    // Top comments
+    if (Array.isArray(v.topComments) && v.topComments.length > 0) {
+      const body = document.createElement("ul");
+      body.className = "metadata-body metadata-body--list";
+      for (const c of v.topComments) {
+        const li = document.createElement("li");
+        li.textContent = c;
+        body.appendChild(li);
+      }
+      sections.push({
+        title: `Top comments (${v.topComments.length})`,
+        node: body,
+      });
+    }
+
+    // Captured frame
+    if (typeof v.currentFrameDataUrl === "string" && v.currentFrameDataUrl.startsWith("data:")) {
+      const img = document.createElement("img");
+      img.className = "metadata-frame";
+      img.alt = "Captured frame at save time";
+      img.src = v.currentFrameDataUrl;
+      sections.push({ title: "Captured frame", node: img });
+    }
+
+    // Video facts
+    const factsRows = [
+      ["Video ID", v.videoId],
+      ["Channel URL", v.channelUrl],
+      ["Watch URL", v.url],
+      ["Saved at", v.savedAt ? new Date(v.savedAt).toLocaleString() : null],
+      ["Extracted with", item && item.extractedWith],
+      ["Status", item && item.status],
+    ].filter(([, val]) => val !== null && val !== undefined && val !== "");
+    if (factsRows.length) {
+      const body = document.createElement("dl");
+      body.className = "metadata-body metadata-facts";
+      for (const [k, val] of factsRows) {
+        const dt = document.createElement("dt");
+        dt.textContent = k;
+        const dd = document.createElement("dd");
+        if (typeof val === "string" && /^https?:\/\//.test(val)) {
+          const a = document.createElement("a");
+          a.href = val; a.target = "_blank"; a.rel = "noopener noreferrer";
+          a.textContent = val;
+          dd.appendChild(a);
+        } else {
+          dd.textContent = String(val);
+        }
+        body.appendChild(dt);
+        body.appendChild(dd);
+      }
+      sections.push({ title: "Video facts", node: body });
+    }
+
+    // Raw JSON — catch-all for anything else collected
+    const pre = document.createElement("pre");
+    pre.className = "metadata-body metadata-json";
+    try { pre.textContent = JSON.stringify(item, null, 2); }
+    catch (_) { pre.textContent = "(unable to serialize)"; }
+    sections.push({ title: "Raw data", node: pre });
+
+    if (sections.length === 0) return;
+
+    const header = document.createElement("div");
+    header.className = "metadata-header";
+    header.textContent = "Details";
+    root.appendChild(header);
+
+    for (const { title, node } of sections) {
+      root.appendChild(buildDisclosure(title, node));
     }
   }
 
