@@ -2,8 +2,6 @@
 
 A YouTube companion: save shopping/haul videos and pull out the products as a shopping list.
 
-> Hackathon project.
-
 ---
 
 ## Why
