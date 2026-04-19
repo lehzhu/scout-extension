@@ -128,18 +128,81 @@ self.Scout.parser = (() => {
   const URL_RX       = /https?:\/\/\S+/g;
   const SEPARATORS   = /\s*[\|:–—\/]\s*/;
 
+  // Stop-words that mean "this isn't a product mention" when they dominate a line
+  const PROMO_RX = /\b(link|links|pics|pictures|blog|newsletter|discount|code|giveaway|subscribe|channel|thanks for watching|comment below)\b/i;
+
+  /**
+   * Pull a product-like noun phrase out of free-form text (e.g. a viewer comment)
+   * by finding a CATEGORY_PATTERN match and keeping up to 2 adjective words before it.
+   * Returns an array of candidate phrases.
+   */
+  function extractPhrasesFromFreeText(text) {
+    if (typeof text !== "string" || !text.trim()) return [];
+    // Normalize whitespace, strip URLs, lowercase for matching
+    const clean = text.replace(URL_RX, " ").replace(/\s+/g, " ").trim();
+    if (!clean) return [];
+    const words = clean.split(/\s+/);
+    const out = [];
+
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i].replace(/[^\w\-']/g, "");
+      if (!w) continue;
+      // Does this word match any category noun?
+      const matchedCat = CATEGORY_PATTERNS.find(([rx]) => rx.test(w));
+      if (!matchedCat) continue;
+      // Walk back up to 2 prior adjective-ish words (alpha, not stopwords)
+      const STOP_MODIFIERS = new Set(["the","a","an","my","your","their","this","that","those","these","and","or","but","to","of","in","on","with","for","at","by","is","are","was","were","i","you","we","they","love","want","need","see","look","looks"]);
+      const parts = [w];
+      let j = i - 1;
+      while (j >= 0 && parts.length < 4) {
+        const prev = words[j].replace(/[^\w\-']/g, "").toLowerCase();
+        if (!prev) { j--; continue; }
+        if (!/^[a-z][a-z\-']*$/.test(prev)) break;
+        if (STOP_MODIFIERS.has(prev)) break;
+        parts.unshift(prev);
+        j--;
+      }
+      // Include the next word if it continues the noun ("leather jacket" → "leather jackets")
+      if (i + 1 < words.length) {
+        const nxt = words[i + 1].replace(/[^\w\-']/g, "").toLowerCase();
+        if (nxt && /^[a-z][a-z\-']*$/.test(nxt) && nxt.length > 2 && !STOP_MODIFIERS.has(nxt)) {
+          // Only append if it reads like a compound noun (not a verb-continuation)
+          if (CATEGORY_PATTERNS.some(([rx]) => rx.test(nxt))) parts.push(nxt);
+        }
+      }
+      const phrase = parts.join(" ").trim();
+      if (phrase.length >= 5 && phrase.length <= 60) out.push(phrase);
+    }
+    return out;
+  }
+
   function heuristicExtract(videoMeta) {
-    const commentText = Array.isArray(videoMeta.topComments)
-      ? videoMeta.topComments.join("\n")
-      : "";
-    const text = [
-      videoMeta.description || "",
-      videoMeta.title || "",
-      commentText,
-    ].join("\n");
-    const lines = text.split(/\r?\n/);
     const products = [];
     const seen = new Set();
+
+    function pushCandidate(name, { confidence = 0.35, timestamp = null } = {}) {
+      if (!name) return;
+      const clean = name.replace(/\s+/g, " ").trim();
+      if (clean.length < 3 || clean.length > 90) return;
+      const key = clean.toLowerCase();
+      if (seen.has(key)) return;
+      seen.add(key);
+      products.push({
+        name: clean,
+        brand: null,
+        category: guessCategory(clean),
+        searchQuery: clean.toLowerCase(),
+        confidence,
+        timestamp,
+      });
+    }
+
+    // ─── Pass 1: description + title (line-oriented) ─────────────────────────
+    const descText = [
+      videoMeta.description || "",
+      videoMeta.title || "",
+    ].join("\n");
+    const lines = descText.split(/\r?\n/);
     let inSection = false;
 
     for (const rawLine of lines) {
@@ -171,18 +234,19 @@ self.Scout.parser = (() => {
 
       if (!isRelevant) continue;
 
-      const key = name.toLowerCase().replace(/\s+/g, " ");
-      if (seen.has(key)) continue;
-      seen.add(key);
-
-      products.push({
-        name,
-        brand: null,
-        category: guessCategory(name),
-        searchQuery: name.toLowerCase(),
-        confidence: 0.35,
+      pushCandidate(name, {
+        confidence: 0.4,
         timestamp: tsMatch ? tsMatch[1] : null,
       });
+    }
+
+    // ─── Pass 2: viewer comments — phrase extraction ─────────────────────────
+    const comments = Array.isArray(videoMeta.topComments) ? videoMeta.topComments : [];
+    for (const comment of comments) {
+      if (typeof comment !== "string" || !comment.trim()) continue;
+      if (PROMO_RX.test(comment)) continue; // skip creator promo / meta chatter
+      const phrases = extractPhrasesFromFreeText(comment);
+      for (const p of phrases) pushCandidate(p, { confidence: 0.45 });
     }
 
     return products.slice(0, 20);
@@ -192,20 +256,23 @@ self.Scout.parser = (() => {
 
   const EXTRACTION_RULES = `You are a shopping-product extraction assistant.
 
-Your job: surface every searchable product a shopper might want from this YouTube video. Use ALL available signals — title, description, transcript, top viewer comments, AND any attached video frames (thumbnails, still captures).
+Your job: surface every searchable product a shopper might want from this YouTube video. Treat THREE sources as equally important and mine each one aggressively:
 
-When frames are attached: look at garments, shoes, accessories, makeup, and visible products being held, worn, or demonstrated. Infer generic descriptors ("brown trench coat", "black leather loafers") when exact brand is unknown — shoppers can still search for these. Use visible logos or tags if readable.
+1. DESCRIPTION — creator's own links, shop sections, "outfit details", timestamps with product names. Treat any bullet-like or hyphenated line as a product candidate unless it's clearly a social/credit link.
+2. VIDEO FRAMES — when mosaic sheets or still images are attached, read them cell by cell and identify every distinct garment, shoe, bag, accessory, beauty product, or physical item worn/held/demonstrated. Infer generic descriptors ("brown trench coat", "black leather loafers") when brand is unknown — shoppers can still search those. Use visible logos or tags if readable. Items shown only briefly still count.
+3. VIEWER COMMENTS — these are often the richest product-identification signal. Viewers name items the creator didn't: "the funnel neck leather jacket", "love the blue maxi dress", "what are those lace trim skirts". EVERY comment that names a garment, shoe, accessory, beauty product, or shoppable item IS A PRODUCT CANDIDATE — even if the creator never mentioned it, even if there's no reply. Pull the item noun phrase out of the comment and treat it as a product. Do NOT dismiss a comment just because it's casual. Do NOT only consider comments the creator answered — extract from ALL of them.
+
+Never emit a raw comment string as a product name. Extract the item (e.g. "lace trim skirts"), not "love the lace trim skirts!!". Never emit self-promotional creator comments ("links in description", "pics in blog", "thanks for watching") as products.
 
 Rules:
-- Extract every distinct clothing item, shoe, accessory, beauty product, or physical item the creator wears, holds, demonstrates, mentions, recommends, or links.
-- Prefer specific descriptors: color + material + silhouette + item type ("cream ribbed wool turtleneck"). Brand when available or inferable from links/comments/visible tags.
-- Mine comments for brand/source questions the creator may have answered ("what jeans are those?" → if referenced in description, include).
-- Deduplicate — merge near-duplicate mentions of the same item.
+- Extract every distinct item from any of the three sources. Aim HIGH on recall: a fashion/haul/lookbook video should return 8–30 items, not 1.
+- Prefer specific descriptors: color + material + silhouette + item type ("cream ribbed wool turtleneck"). Brand when available or inferable.
+- Deduplicate — merge near-duplicate mentions of the same item, even across sources.
 - searchQuery: Google-Shopping-ready string, 3–6 lowercase keywords, no punctuation. Lead with brand if known.
-- timestamp: "m:ss" ONLY when transcript/comments clearly pin a specific moment. Use null (not "0:00" or "N/A") if unknown.
+- timestamp: "m:ss" ONLY when transcript clearly pins a moment. Use null (not "0:00" or "N/A") if unknown.
 - brand: exact brand string when known, otherwise null. Do NOT write "Unknown", "N/A", or "None".
-- confidence: 0–1, your certainty it's a real searchable product. Include items ≥ 0.4.
-- Aim to return SOMETHING for any fashion/lifestyle/haul video. An empty array is only correct when the video is genuinely not about shoppable items (e.g. vlog with no visible products).
+- confidence: 0–1, your certainty it's a real searchable product. Include items ≥ 0.4. Comments naming a specific garment/accessory ≥ 0.5.
+- An empty array is only correct when the video is genuinely not about shoppable items (e.g. a vlog with no visible products AND no product mentions in any source). Otherwise: return items.
 - Respond with ONLY a valid JSON array of product objects. No prose, no markdown.
 
 Product shape: {"name": string, "brand": string|null, "category": "top"|"bottom"|"dress"|"outerwear"|"shoes"|"bag"|"accessory"|"beauty"|"other", "searchQuery": string, "confidence": number, "timestamp": string|null}`;
@@ -223,9 +290,14 @@ Product shape: {"name": string, "brand": string|null, "category": "top"|"bottom"
 
     return `Video title: ${title}
 Channel: ${channel}
-Description: ${description || "(none)"}
-Transcript: ${transcriptText || "(no transcript available)"}
-Top comments (may reveal products viewers asked about):
+
+=== DESCRIPTION (creator's own product list + links) ===
+${description || "(none)"}
+
+=== TRANSCRIPT ===
+${transcriptText || "(no transcript available)"}
+
+=== VIEWER COMMENTS (${Array.isArray(topComments) ? topComments.length : 0} captured — MINE THESE for product names viewers are pointing at) ===
 ${comments}${imagesNote}`;
   }
 
@@ -279,6 +351,21 @@ ${comments}${imagesNote}`;
       const html = await res.text();
       return extractPlayerResponse(html);
     } catch (_) { return null; }
+  }
+
+  /**
+   * Fetch the full, untruncated description from YouTube's server-rendered
+   * watch page. More reliable than in-page DOM scraping (which can miss the
+   * full text or pick up the AI summary widget).
+   * Returns empty string on any failure.
+   */
+  async function fetchFullDescription(videoId) {
+    try {
+      if (!videoId) return "";
+      const pr = await fetchPlayerResponse(videoId);
+      const desc = pr?.videoDetails?.shortDescription;
+      return typeof desc === "string" ? desc : "";
+    } catch (_) { return ""; }
   }
 
   /**
@@ -534,21 +621,76 @@ ${comments}${imagesNote}`;
    * @param {{videoMeta: import("../lib/types").VideoMeta, transcriptText: string|null, settings: import("../lib/types").Settings}}
    * @returns {Promise<import("../lib/types").Product[]>}
    */
+  /**
+   * Synthetic fallback — guarantees the saves list is never empty.
+   * Used only when every other source returns zero items. A single search
+   * row seeded from the video title so the user can still click through.
+   */
+  function syntheticMockProducts(videoMeta) {
+    const rawTitle = (videoMeta?.title || "").trim();
+    if (!rawTitle) return [];
+    // Strip obvious noise so the shopping search is cleaner
+    const cleaned = rawTitle
+      .replace(/[\[\(\{][^\]\)\}]+[\]\)\}]/g, "") // drop [4K], (2026), etc.
+      .replace(/[|–—].*$/, "")                    // drop everything after a dash/pipe
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 60);
+    if (!cleaned) return [];
+    return [{
+      name: `Shop items from: ${cleaned}`,
+      brand: null,
+      category: "other",
+      searchQuery: cleaned.toLowerCase(),
+      confidence: 0.4,
+      timestamp: null,
+    }];
+  }
+
   async function extractProducts({ videoMeta, transcriptText, settings }) {
     const provider = settings?.provider || "none";
 
+    // Always ensure we have the FULL description — the in-page scrape can miss
+    // long descriptions. Fetch server-side from the watch page if the captured
+    // one is short (common when the player JSON hasn't finished loading).
+    try {
+      const captured = typeof videoMeta.description === "string" ? videoMeta.description : "";
+      if (captured.length < 800 && videoMeta.videoId) {
+        const full = await fetchFullDescription(videoMeta.videoId);
+        if (full && full.length > captured.length) {
+          videoMeta = { ...videoMeta, description: full };
+        }
+      }
+    } catch (_) { /* non-fatal — keep whatever description we had */ }
+
+    let products = [];
     if (provider === "gemini") {
       if (!settings.geminiApiKey) throw new Error("Gemini API key not set — add it in Settings.");
       const { parts: imageParts, storyboard } = await collectImageParts(videoMeta);
       const model = settings.geminiModel || DEFAULT_MODELS.gemini;
-      return extractWithGemini({
-        videoMeta, transcriptText, apiKey: settings.geminiApiKey, model, imageParts, storyboard,
-      });
+      try {
+        products = await extractWithGemini({
+          videoMeta, transcriptText, apiKey: settings.geminiApiKey, model, imageParts, storyboard,
+        });
+      } catch (err) {
+        // If Gemini fails, fall through to heuristic rather than error out
+        console.warn("[Scout] Gemini extraction failed, falling back to heuristic:", err.message);
+        products = [];
+      }
     }
 
-    // provider === "none": heuristic extraction, always succeeds
-    return heuristicExtract(videoMeta);
+    // Heuristic as second pass (always cheap, never throws)
+    if (!Array.isArray(products) || products.length === 0) {
+      products = heuristicExtract(videoMeta);
+    }
+
+    // Last-resort mockup — user explicitly asked: never show "no products".
+    if (!Array.isArray(products) || products.length === 0) {
+      products = syntheticMockProducts(videoMeta);
+    }
+
+    return Array.isArray(products) ? products : [];
   }
 
-  return { fetchTranscript, extractProducts, DEFAULT_MODELS };
+  return { fetchTranscript, extractProducts, fetchFullDescription, DEFAULT_MODELS };
 })();
