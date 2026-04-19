@@ -72,6 +72,7 @@
       default: { background: "#0F0F0F", label: "★ Save to Scout", disabled: false },
       saving:  { background: "#0F0F0F", label: "Saving…",          disabled: true  },
       saved:   { background: "#22A06B", label: "✓ Saved",           disabled: true  },
+      open:    { background: "#22A06B", label: "✓ Open in Scout",   disabled: false },
       error:   { background: "#F0336C", label: "⚠ Error — retry",   disabled: false },
     };
 
@@ -81,6 +82,7 @@
         btn.style.background = s.background;
         btn.textContent = customLabel || s.label;
         btn.disabled = s.disabled;
+        btn.dataset.scoutState = BTN_STYLES[state] ? state : "default";
       } catch (_) {}
     }
 
@@ -114,10 +116,20 @@
       btn.textContent = "★ Save to Scout";
 
       btn.addEventListener("mouseenter", () => {
-        if (!btn.disabled) btn.style.background = "#2A2A2A";
+        if (btn.disabled) return;
+        if (btn.dataset.scoutState === "open") {
+          btn.style.background = "#1C8A5A";
+        } else {
+          btn.style.background = "#2A2A2A";
+        }
       });
       btn.addEventListener("mouseleave", () => {
-        if (!btn.disabled) btn.style.background = BTN_STYLES.default.background;
+        if (btn.disabled) return;
+        if (btn.dataset.scoutState === "open") {
+          btn.style.background = BTN_STYLES.open.background;
+        } else {
+          btn.style.background = BTN_STYLES.default.background;
+        }
       });
 
       return btn;
@@ -255,6 +267,49 @@
       }
     }
 
+    /**
+     * Pull the clean description from ytInitialPlayerResponse embedded in a
+     * <script> tag. Returns "" on any failure — caller falls back to empty.
+     */
+    function readDescriptionFromPlayerResponse() {
+      try {
+        const scripts = document.querySelectorAll("script");
+        for (const s of scripts) {
+          const text = s.textContent || "";
+          if (!text.includes("ytInitialPlayerResponse")) continue;
+
+          // Prefer brace-balanced extraction for safety
+          const idx = text.indexOf("ytInitialPlayerResponse");
+          if (idx === -1) continue;
+          const braceStart = text.indexOf("{", idx);
+          if (braceStart === -1) continue;
+          let depth = 0, end = -1, inStr = false, esc = false;
+          for (let i = braceStart; i < text.length; i++) {
+            const ch = text[i];
+            if (inStr) {
+              if (esc) esc = false;
+              else if (ch === "\\") esc = true;
+              else if (ch === '"') inStr = false;
+              continue;
+            }
+            if (ch === '"') inStr = true;
+            else if (ch === "{") depth++;
+            else if (ch === "}") {
+              depth--;
+              if (depth === 0) { end = i; break; }
+            }
+          }
+          if (end === -1) continue;
+          try {
+            const pr = JSON.parse(text.slice(braceStart, end + 1));
+            const desc = pr?.videoDetails?.shortDescription;
+            if (typeof desc === "string" && desc.trim()) return desc;
+          } catch (_) {}
+        }
+      } catch (_) {}
+      return "";
+    }
+
     // ─── Metadata extraction ─────────────────────────────────────────────────
 
     /**
@@ -302,27 +357,16 @@
         ? `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`
         : "";
 
-      // Description — read textContent directly; do not click the expander.
-      // YouTube's DOM shifts — try newer container selectors first, then the
-      // legacy yt-formatted-string children, stopping at the first non-empty.
+      // Description — read from ytInitialPlayerResponse embedded in the page.
+      // This avoids YouTube's AI summary widget (which now bleeds into the
+      // #description-inline-expander DOM with "Summary / AI-generated…" copy).
       let description = "";
       try {
-        const descSelectors = [
-          "#description-inline-expander yt-formatted-string",
-          "ytd-text-inline-expander yt-formatted-string",
-          "#description yt-formatted-string",
-          "#description-inline-expander",
-          "ytd-text-inline-expander",
-          "#description",
-        ];
-        for (const sel of descSelectors) {
-          const el = document.querySelector(sel);
-          const t = (el?.textContent || "").trim();
-          if (t && t.length > 20) {
-            description = t.slice(0, 4000);
-            break;
-          }
-        }
+        description = readDescriptionFromPlayerResponse();
+      } catch (_) {}
+      // Normalize consecutive blank lines (3+ newlines → 2) and cap length
+      try {
+        description = description.replace(/\n{3,}/g, "\n\n").slice(0, 4000);
       } catch (_) {}
 
       // Best-effort frame + comments — both may be empty and that's fine
@@ -375,10 +419,20 @@
 
     async function _doInject(owner, titleAnchor) {
       const btn = createButton();
+      applyBtnState(btn, "default");
 
-      // Progress messages: the button shows a green checkmark optimistically
-      // on click, so we only surface terminal "error" state here. The popup
-      // and saves list still reflect the real transcript/extraction progress.
+      function openSavedPage(id) {
+        try {
+          if (!id) return;
+          const url = chrome.runtime.getURL(
+            "src/page/index.html?id=" + encodeURIComponent(id)
+          );
+          window.open(url, "_blank", "noopener");
+        } catch (_) {}
+      }
+
+      // Progress messages: the button shows terminal "error" state here.
+      // "done" no-ops — doSave() already transitioned to "open" on resp.ok.
       onMessage(MSG.SAVE_PROGRESS, async (payload) => {
         try {
           const liveBtn = document.getElementById("scout-save-btn");
@@ -391,6 +445,14 @@
       });
 
       async function doSave(force) {
+        // If already in "open" state, a click should route to openSavedPage.
+        // The click handler handles that directly; this guard is defense-in-depth.
+        if (btn.dataset.scoutState === "open" && !force) {
+          openSavedPage(btn.dataset.scoutSavedId);
+          return;
+        }
+        if (btn.dataset.scoutPending === "1") return;
+
         let meta;
         try {
           meta = extractVideoMeta();
@@ -403,9 +465,10 @@
           return;
         }
 
-        // Optimistic UX: flip to green checkmark immediately.
+        // No optimistic "Saved" flash — we can't claim saved until the SW
+        // has confirmed it isn't a duplicate. Show a transient "Saving…" state.
         btn.dataset.scoutPending = "1";
-        applyBtnState(btn, "saved");
+        applyBtnState(btn, "saving");
 
         let resp;
         try {
@@ -414,23 +477,39 @@
           resp = { ok: false, error: "No receiver" };
         }
 
+        // Duplicate: transition straight to "open" state with the existing id.
         if (resp && resp.duplicate) {
-          applyBtnState(btn, "default");
           delete btn.dataset.scoutPending;
+          if (resp.existingId) {
+            btn.dataset.scoutSavedId = resp.existingId;
+            applyBtnState(btn, "open");
+          } else {
+            applyBtnState(btn, "default");
+          }
           showDuplicateToast(resp.savedAt, () => doSave(true));
           return;
         }
 
-        setTimeout(() => {
-          try {
-            const liveBtn = document.getElementById("scout-save-btn");
-            if (liveBtn) applyBtnState(liveBtn, "default");
-            if (liveBtn) delete liveBtn.dataset.scoutPending;
-          } catch (_) {}
-        }, 1800);
+        // Success: compute id the same way the SW does and pin "open" state.
+        if (resp && resp.ok) {
+          delete btn.dataset.scoutPending;
+          const savedId = `${meta.videoId}-${meta.savedAt}`;
+          btn.dataset.scoutSavedId = savedId;
+          applyBtnState(btn, "open");
+          return;
+        }
+
+        // Non-duplicate failure (and not handled by SAVE_PROGRESS): show error.
+        delete btn.dataset.scoutPending;
+        const errMsg = (resp && resp.error) ? `⚠ ${resp.error}` : undefined;
+        applyBtnState(btn, "error", errMsg);
       }
 
       btn.addEventListener("click", async () => {
+        if (btn.dataset.scoutState === "open") {
+          openSavedPage(btn.dataset.scoutSavedId);
+          return;
+        }
         if (btn.dataset.scoutPending === "1") return;
         await doSave(false);
       });
@@ -451,6 +530,33 @@
       } catch (_) {
         // DOM insertion failed — don't throw
       }
+
+      // After inserting, ask the SW whether this video is already saved.
+      // Use the freshest videoId at call time — not a closure capture.
+      (async () => {
+        try {
+          let currentVideoId = "";
+          try {
+            currentVideoId = new URLSearchParams(location.search).get("v") || "";
+          } catch (_) {}
+          if (!currentVideoId) return;
+          const resp = await sendMessage(MSG.GET_SAVED_ID, { videoId: currentVideoId });
+          if (!resp || !resp.id) return;
+          // Only upgrade if the button is still the fresh default (no in-flight save).
+          const live = document.getElementById("scout-save-btn");
+          if (!live) return;
+          if (live.dataset.scoutPending === "1") return;
+          if (live.dataset.scoutState && live.dataset.scoutState !== "default") return;
+          // And only if the URL's videoId hasn't changed since we asked.
+          let nowVideoId = "";
+          try {
+            nowVideoId = new URLSearchParams(location.search).get("v") || "";
+          } catch (_) {}
+          if (nowVideoId !== currentVideoId) return;
+          live.dataset.scoutSavedId = resp.id;
+          applyBtnState(live, "open");
+        } catch (_) {}
+      })();
     }
 
     // ─── SPA-aware entry point ───────────────────────────────────────────────

@@ -63,6 +63,13 @@
       defaultModel: "gemini-2.5-flash",
       keyHintHtml: 'Get a free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.',
     },
+    openrouter: {
+      providerHint: "Uses OpenRouter (OpenAI-compatible). Best as a backup when Gemini is unavailable.",
+      keyLabel: "OpenRouter API Key", keyPlaceholder: "sk-or-\u2026",
+      keyField: "openrouterApiKey", modelField: "openrouterModel",
+      defaultModel: "openai/gpt-4o-mini",
+      keyHintHtml: 'Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">openrouter.ai/keys</a>.',
+    },
   };
 
   async function renderSettings() {
@@ -534,9 +541,8 @@
     const p = settings.provider || "none";
     _readyToExtract =
       p === "none" ||
-      (p === "gemini"      && !!settings.geminiApiKey) ||
-      (p === "openrouter"  && !!settings.openrouterApiKey) ||
-      (p === "openai"      && !!settings.openaiApiKey);
+      (p === "gemini" && !!settings.geminiApiKey) ||
+      (p === "openrouter" && !!settings.openrouterApiKey);
   } catch (_) {}
 
   const pendingSection = document.getElementById("pending-section");

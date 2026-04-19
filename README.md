@@ -60,7 +60,7 @@ Clean and minimal: near-black (`#0F0F0F`) for all primary CTAs, white surface wi
 - No backend. All saved items live in `chrome.storage.local` on your machine.
 - Your Gemini API key is stored locally and never logged.
 - Gemini API calls go directly from your browser to `generativelanguage.googleapis.com`. The key rides in the request URL per Google's API convention — fine for a local extension, but don't use a production-billing key.
-- The extension requests only `storage` and `activeTab` permissions, plus host access to `youtube.com` (for the save button) and `generativelanguage.googleapis.com` (for product extraction).
+- The extension requests only `storage` and `activeTab` permissions, plus host access to `youtube.com`, `i.ytimg.com` (for YouTube thumbnails/storyboards), and `generativelanguage.googleapis.com` (for Gemini extraction).
 
 ---
 

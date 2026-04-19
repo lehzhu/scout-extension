@@ -32,10 +32,15 @@ self.Scout.storage = (() => {
       provider: "none",
       geminiApiKey: null,
       geminiModel: null,
+      openrouterApiKey: null,
+      openrouterModel: null,
     };
     const s = Object.assign({}, defaults, raw && typeof raw === "object" ? raw : {});
-    // Backward compat: infer provider from legacy geminiApiKey field
-    if (!raw?.provider && s.geminiApiKey) s.provider = "gemini";
+    // Backward compat: infer provider from legacy key fields
+    if (!raw?.provider) {
+      if (s.geminiApiKey) s.provider = "gemini";
+      else if (s.openrouterApiKey) s.provider = "openrouter";
+    }
     return s;
   }
 

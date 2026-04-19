@@ -52,6 +52,7 @@ Scout.messaging.onMessage(MSG.REMOVE_ITEM,   handleRemoveItem);
 Scout.messaging.onMessage(MSG.CLEAR_ITEMS,   handleClearItems);
 Scout.messaging.onMessage(MSG.RETRY_ITEM,    handleRetryItem);
 Scout.messaging.onMessage(MSG.GET_INFLIGHT,  handleGetInFlight);
+Scout.messaging.onMessage(MSG.GET_SAVED_ID,  handleGetSavedId);
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,8 @@ async function runExtraction(videoMeta, existingId, tabId) {
   // Belt-and-suspenders: ensure inFlight is cleaned up on any unexpected throw
   try {
     const settings = await Scout.storage.getSettings();
-    const needsTranscript = settings.provider !== "none";
+    const provider = settings?.provider || "none";
+    const needsTranscript = provider !== "none";
 
     inFlight.set(videoMeta.videoId, {
       videoMeta,
@@ -112,7 +114,14 @@ async function runExtraction(videoMeta, existingId, tabId) {
       inFlight.delete(videoMeta.videoId);
       broadcastInFlight();
       const errorMsg = err.message || "Unknown extraction error";
-      const item = { id, video: videoMeta, products: [], status: "error", error: errorMsg };
+      const item = {
+        id,
+        video: videoMeta,
+        products: [],
+        status: "error",
+        error: errorMsg,
+        extractedWith: provider === "gemini" ? "gemini" : "heuristic",
+      };
       try {
         await Scout.storage.addItem(item);
       } catch (storageErr) {
@@ -124,7 +133,14 @@ async function runExtraction(videoMeta, existingId, tabId) {
 
     inFlight.delete(videoMeta.videoId);
     broadcastInFlight();
-    const item = { id, video: videoMeta, products, status: "ready", error: null };
+    const item = {
+      id,
+      video: videoMeta,
+      products,
+      status: "ready",
+      error: null,
+      extractedWith: provider === "gemini" ? "gemini" : "heuristic",
+    };
     try {
       await Scout.storage.addItem(item);
     } catch (storageErr) {
@@ -222,6 +238,27 @@ async function handleClearItems() {
   }
 }
 
+async function handleGetSavedId(payload) {
+  try {
+    const videoId = payload && typeof payload.videoId === "string" ? payload.videoId : "";
+    if (!videoId) return { id: null };
+    const items = await Scout.storage.getItems();
+    if (!Array.isArray(items)) return { id: null };
+    // getItems() returns newest-first per storage layer; pick the first match.
+    let newest = null;
+    for (const it of items) {
+      if (!it || !it.video || it.video.videoId !== videoId) continue;
+      const ts = (it.video && it.video.savedAt) || 0;
+      if (!newest || ts > ((newest.video && newest.video.savedAt) || 0)) {
+        newest = it;
+      }
+    }
+    return { id: newest ? newest.id : null };
+  } catch (_) {
+    return { id: null };
+  }
+}
+
 async function handleGetInFlight() {
   try {
     return Array.from(inFlight.values());
@@ -254,7 +291,7 @@ async function handleRetryItem(payload) {
     return { ok: false, error: "Could not read settings" };
   }
 
-  if (!settings.geminiApiKey) {
+  if (settings.provider === "gemini" && !settings.geminiApiKey) {
     return { ok: false, error: "Gemini API key not set. Open Settings to add one." };
   }
 
@@ -270,7 +307,7 @@ async function handleRetryItem(payload) {
   inFlight.set(videoMeta.videoId, {
     videoMeta,
     startedAt: Date.now(),
-    status: "fetching-transcript",
+    status: settings.provider === "none" ? "extracting-products" : "fetching-transcript",
   });
   broadcastInFlight();
 

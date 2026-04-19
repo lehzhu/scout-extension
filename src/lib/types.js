@@ -29,12 +29,14 @@
  * @property {Product[]} products
  * @property {"pending" | "ready" | "error"} status
  * @property {string|null} error
- * @property {"gemini"|"heuristic"|null} [extractedWith]
+ * @property {"gemini"|"openrouter"|"heuristic"|null} [extractedWith]
  */
 
 /**
  * @typedef {Object} Settings
- * @property {"none"|"gemini"} provider
+ * @property {"none"|"gemini"|"openrouter"} provider
  * @property {string|null} geminiApiKey
- * @property {string|null} geminiModel      - null = use default
+ * @property {string|null} geminiModel         - null = use default
+ * @property {string|null} openrouterApiKey
+ * @property {string|null} openrouterModel     - null = use default
  */
