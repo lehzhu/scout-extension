@@ -471,7 +471,11 @@
       if (channelEl) channelEl.textContent = v.channel || "";
       if (iframe) {
         if (v.videoId) {
-          iframe.src = "https://www.youtube.com/embed/" + encodeURIComponent(v.videoId);
+          // youtube-nocookie embeds accept chrome-extension:// origin;
+          // the standard youtube.com/embed does not (Error 153).
+          iframe.src =
+            "https://www.youtube-nocookie.com/embed/" +
+            encodeURIComponent(v.videoId);
         } else {
           iframe.removeAttribute("src");
         }
