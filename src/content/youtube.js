@@ -104,13 +104,15 @@
         fontFamily: '"Roboto", "Arial", sans-serif',
         border: "0",
         cursor: "pointer",
-        margin: "0 8px",
+        margin: "0 0 0 8px",
         display: "inline-flex",
         alignItems: "center",
         whiteSpace: "nowrap",
         lineHeight: "1",
         transition: "background 0.15s",
         verticalAlign: "middle",
+        alignSelf: "center",
+        flex: "0 0 auto",
       });
 
       btn.textContent = "★ Save to Scout";
@@ -514,11 +516,13 @@
         await doSave(false);
       });
 
-      // Preferred: insert right after #owner so we land between Subscribe
-      // and the Like cluster. Fallback: after the title h1.
+      // Preferred: append *inside* #owner as the last child so we sit flush
+      // next to Subscribe. Placing us as a sibling of #owner instead pushes
+      // us into the flex gap between #owner and #actions, which on some
+      // videos drifts to the far right of the row.
       try {
-        if (owner && owner.parentNode) {
-          owner.parentNode.insertBefore(btn, owner.nextSibling);
+        if (owner) {
+          owner.appendChild(btn);
         } else if (titleAnchor) {
           const h1 = titleAnchor.querySelector("h1") || titleAnchor;
           if (h1.parentNode) {
