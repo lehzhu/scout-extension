@@ -151,7 +151,17 @@ self.Scout.parser = (() => {
       const matchedCat = CATEGORY_PATTERNS.find(([rx]) => rx.test(w));
       if (!matchedCat) continue;
       // Walk back up to 2 prior adjective-ish words (alpha, not stopwords)
-      const STOP_MODIFIERS = new Set(["the","a","an","my","your","their","this","that","those","these","and","or","but","to","of","in","on","with","for","at","by","is","are","was","were","i","you","we","they","love","want","need","see","look","looks"]);
+      const STOP_MODIFIERS = new Set([
+        "the","a","an","my","your","their","this","that","those","these",
+        "and","or","but","to","of","in","on","with","for","at","by",
+        "is","are","was","were","i","you","we","they",
+        // verbs/adverbs that make a phrase into a clause, not a product
+        "love","loved","loving","want","wanted","need","needed","see","saw",
+        "look","looks","looking","feel","feels","feeling","felt",
+        "watch","watched","watching","wear","wore","worn","wearing",
+        "still","only","just","really","maybe","literally","actually","basically",
+        "check","follow","subscribe","like","visit","join","grab","get","got","find","found","use","used",
+      ]);
       const parts = [w];
       let j = i - 1;
       while (j >= 0 && parts.length < 4) {
@@ -269,6 +279,13 @@ NAME QUALITY — every product must be uniquely searchable on Google Shopping:
 - NEVER use a bare category word alone: "dress", "shoes", "bag", "top", "shirt". These return garbage search results. Either add descriptors (color, material, silhouette, brand, pattern) or skip the item.
 - Two products must never share the same searchQuery. If you can't differentiate two items with distinct descriptors, only include the more specific one.
 - A good name reads like a product page title: "cream ribbed wool turtleneck", "Adidas Sambas white black", "beige leather bucket bag", "Rhode peptide lip treatment salted caramel". A bad name reads like a label: "Top 1", "Shoes", "Item *".
+
+HARD EXCLUSIONS — these are NEVER products, regardless of source:
+- Creator self-promotion / social CTAs: "Check Out my 2nd Channel", "Like my Facebook Page", "Subscribe", "Follow me on Instagram", "Link in bio", "Join my Discord", "Visit my shop", "My newsletter", "Patreon". If a line starts with a verb like Check/Follow/Subscribe/Like/Visit/Join or contains "my [channel/page/blog/IG/TikTok/Twitter/shop/newsletter]", it is NOT a product — skip it.
+- Transcript sentence fragments: verb clauses like "still watch", "only realized that", "feel like im watching", "love how this looks", "just grabbed", "really want". A product name is a NOUN PHRASE (maybe with adjectives). If the candidate starts with an adverb (still/only/just/really/maybe) or a verb (feel/love/watch/want/check/see/think), it's a fragment — skip it.
+- Generic/structural words from descriptions: "Alternatives", "Options", "Details", "Links", "Chapters", "Timestamps", "Sponsors", "Music used".
+- Discount codes and promo phrases: "Use code XYZ", "20% off", "Giveaway winner".
+- Equipment/gear credits: "Camera I used", "Mic I used", "Editing software" — unless the video is explicitly a gear review.
 
 Rules:
 - Extract every distinct item from any of the three sources. Aim HIGH on recall: a fashion/haul/lookbook video should return 8–30 items, not 1.
@@ -524,6 +541,17 @@ ${comments}${imagesNote}`;
   // searchQuery must have real semantic content — reject numbered/empty placeholders
   const PLACEHOLDER_QUERY_RX = /^\s*(?:item|product|look|piece|no\.?|#)?\s*\d+\s*\*?\s*$/i;
 
+  // Creator self-promo / social CTAs — never products.
+  // Matches "check out my 2nd channel", "like my facebook page", "follow me on IG", etc.
+  const PROMO_NAME_RX = /\b(?:my\s+(?:channel|page|blog|newsletter|shop|store|discord|patreon|instagram|ig|twitter|x|tiktok|facebook|fb|youtube|yt|podcast)|link\s+in\s+bio|links?\s+(?:in|below|above)|subscribe|follow\s+(?:me|us)|like\s+(?:my|the)|visit\s+(?:my|our)|join\s+(?:my|our)|check\s+out\s+(?:my|our)|use\s+code|promo\s+code|discount\s+code|\d+%\s*off|giveaway)\b/i;
+
+  // Sentence fragments from transcript / comments that aren't noun phrases.
+  // Names should start with an adjective or noun, not an adverb/verb/conjunction.
+  const FRAGMENT_START_RX = /^(?:still|only|just|really|maybe|literally|actually|basically|honestly|love|loved|loving|want|wanted|wanting|need|needed|feel|feels|feeling|felt|watch|watched|watching|look|looks|looking|looked|see|saw|seen|think|thought|wish|hope|try|trying|tried|check|follow|subscribe|like|visit|join|grab|get|got|find|found|use|used)\b/i;
+
+  // Generic section labels from descriptions — "Alternatives", "Links", "Details", etc.
+  const SECTION_LABEL_RX = /^(?:alternatives?|options?|details?|links?|chapters?|timestamps?|sponsors?|credits?|music(?:\s+used)?|gear(?:\s+used)?|equipment|resources?|mentioned|references?|description|outfit(?:\s+details?)?|shop(?:\s+the\s+look)?)[\s:!*•\-]*$/i;
+
   function hasMeaningfulContent(str) {
     if (typeof str !== "string") return false;
     const words = str.trim().split(/\s+/).filter((w) => /[a-z]/i.test(w));
@@ -543,6 +571,16 @@ ${comments}${imagesNote}`;
     if (PLACEHOLDER_NAME_RX.test(name)) return null;
     if (BARE_CATEGORY_RX.test(name)) return null;
     if (PLACEHOLDER_QUERY_RX.test(searchQuery)) return null;
+
+    // Reject creator self-promo, social CTAs, discount codes
+    if (PROMO_NAME_RX.test(name)) return null;
+    if (PROMO_NAME_RX.test(searchQuery)) return null;
+
+    // Reject sentence fragments — names must be noun phrases, not clauses
+    if (FRAGMENT_START_RX.test(name)) return null;
+
+    // Reject generic section labels from descriptions
+    if (SECTION_LABEL_RX.test(name)) return null;
 
     // Require at least 2 alphabetic words in EITHER name or searchQuery —
     // a single-word product like "dress" is not Google-Shopping-ready.
