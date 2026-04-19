@@ -271,16 +271,19 @@
 
     /**
      * Pull the clean description from ytInitialPlayerResponse embedded in a
-     * <script> tag. Returns "" on any failure — caller falls back to empty.
+     * <script> tag — but ONLY if its videoId matches the given one. On SPA
+     * navigations YouTube keeps the original script tag from the initial
+     * page load, so without this guard we'd return the wrong video's
+     * description after navigating between watch pages.
+     * Returns "" on any failure — caller falls back to empty.
      */
-    function readDescriptionFromPlayerResponse() {
+    function readDescriptionFromPlayerResponse(expectedVideoId) {
       try {
         const scripts = document.querySelectorAll("script");
         for (const s of scripts) {
           const text = s.textContent || "";
           if (!text.includes("ytInitialPlayerResponse")) continue;
 
-          // Prefer brace-balanced extraction for safety
           const idx = text.indexOf("ytInitialPlayerResponse");
           if (idx === -1) continue;
           const braceStart = text.indexOf("{", idx);
@@ -304,6 +307,10 @@
           if (end === -1) continue;
           try {
             const pr = JSON.parse(text.slice(braceStart, end + 1));
+            if (expectedVideoId && pr?.videoDetails?.videoId !== expectedVideoId) {
+              // Stale script tag from a previous page load — skip.
+              continue;
+            }
             const desc = pr?.videoDetails?.shortDescription;
             if (typeof desc === "string" && desc.trim()) return desc;
           } catch (_) {}
@@ -362,9 +369,11 @@
       // Description — read from ytInitialPlayerResponse embedded in the page.
       // This avoids YouTube's AI summary widget (which now bleeds into the
       // #description-inline-expander DOM with "Summary / AI-generated…" copy).
+      // Pass the current videoId so we reject stale script tags left over
+      // from prior SPA pages.
       let description = "";
       try {
-        description = readDescriptionFromPlayerResponse();
+        description = readDescriptionFromPlayerResponse(videoId);
       } catch (_) {}
       // Normalize consecutive blank lines (3+ newlines → 2) and cap length
       try {

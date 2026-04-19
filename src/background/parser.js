@@ -650,14 +650,15 @@ ${comments}${imagesNote}`;
   async function extractProducts({ videoMeta, transcriptText, settings }) {
     const provider = settings?.provider || "none";
 
-    // Always ensure we have the FULL description — the in-page scrape can miss
-    // long descriptions. Fetch server-side from the watch page if the captured
-    // one is short (common when the player JSON hasn't finished loading).
+    // Always fetch the description server-side for the exact videoId.
+    // The in-page scrape can return the WRONG video's description on SPA
+    // navigations (YouTube keeps the original ytInitialPlayerResponse
+    // script tag around), and can also miss or truncate the real one.
+    // A fresh fetch keyed by videoId is the source of truth.
     try {
-      const captured = typeof videoMeta.description === "string" ? videoMeta.description : "";
-      if (captured.length < 800 && videoMeta.videoId) {
+      if (videoMeta.videoId) {
         const full = await fetchFullDescription(videoMeta.videoId);
-        if (full && full.length > captured.length) {
+        if (full && full.trim()) {
           videoMeta = { ...videoMeta, description: full };
         }
       }
