@@ -564,9 +564,10 @@ body {
 
 #notes-input {
   width: 100%;
-  min-height: 160px;
+  height: calc(1.5em + 20px);
+  min-height: 0;
   resize: vertical;
-  padding: 12px 14px;
+  padding: 10px 14px;
   font-family: var(--font);
   font-size: 14px;
   line-height: 1.5;
