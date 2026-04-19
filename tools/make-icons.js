@@ -5,9 +5,9 @@ const fs = require('fs');
 const zlib = require('zlib');
 const path = require('path');
 
-const ORANGE = [0xFF, 0x7A, 0x1A];
-const CREAM  = [0xFF, 0xF5, 0xE8];
-const BAND   = [0x6B, 0x44, 0x23];
+const BLUE  = [0x1E, 0x66, 0xD0];
+const CREAM = [0xFF, 0xF5, 0xE8];
+const BAND  = [0x6B, 0x44, 0x23];
 
 function crc32Table() {
   const t = new Uint32Array(256);
@@ -83,7 +83,7 @@ function makeIcon(size) {
   function colorAt(x, y) {
     if (inBand(x, y)) return BAND;
     if (inCrown(x, y) || inCrownCap(x, y) || inBrim(x, y)) return CREAM;
-    return ORANGE;
+    return BLUE;
   }
 
   const rowLen = 1 + size * 3;
