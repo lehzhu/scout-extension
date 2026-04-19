@@ -5,6 +5,7 @@ self.Scout.storage = (() => {
   const KEYS = {
     SETTINGS: "scout.settings",
     ITEMS: "scout.items",
+    FAVOURITES: "scout.favourites",
   };
 
   /**
@@ -188,5 +189,87 @@ self.Scout.storage = (() => {
     }
   }
 
-  return { getSettings, setSettings, getItems, addItem, replaceItem, removeItem, clearItems, getNotes, setNote };
+  // ── Favourites ──────────────────────────────────────────────────────────
+
+  function favIdFor(itemId, productIndex) {
+    return String(itemId) + "::" + String(productIndex);
+  }
+
+  async function getFavourites() {
+    try {
+      const result = await chrome.storage.local.get(KEYS.FAVOURITES);
+      const raw = result[KEYS.FAVOURITES];
+      return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+    } catch (err) {
+      console.warn("[Scout] getFavourites failed:", err && err.message);
+      return {};
+    }
+  }
+
+  async function isFavourited(itemId, productIndex) {
+    try {
+      if (typeof itemId !== "string" || itemId.length === 0) return false;
+      const favs = await getFavourites();
+      return Object.prototype.hasOwnProperty.call(favs, favIdFor(itemId, productIndex));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Toggle a favourite. `flag = true` adds/updates, `flag = false` removes.
+   * Never throws except on quota.
+   */
+  async function setFavourited(itemId, productIndex, videoMeta, product, flag) {
+    try {
+      if (typeof itemId !== "string" || itemId.length === 0) return;
+      const favs = await getFavourites();
+      const key = favIdFor(itemId, productIndex);
+      if (flag) {
+        const v = (videoMeta && typeof videoMeta === "object") ? videoMeta : {};
+        const p = (product && typeof product === "object") ? product : {};
+        favs[key] = {
+          itemId,
+          videoId: v.videoId || null,
+          videoTitle: v.title || "",
+          videoUrl: v.url || (v.videoId ? "https://www.youtube.com/watch?v=" + v.videoId : ""),
+          channel: v.channel || "",
+          thumbnailUrl: v.thumbnailUrl || (v.videoId ? "https://i.ytimg.com/vi/" + v.videoId + "/hqdefault.jpg" : ""),
+          productIndex: productIndex,
+          product: {
+            name: p.name || "",
+            brand: p.brand || "",
+            category: p.category || "",
+            searchQuery: p.searchQuery || "",
+            confidence: p.confidence != null ? p.confidence : null,
+            timestamp: p.timestamp != null ? p.timestamp : null,
+          },
+          favedAt: Date.now(),
+        };
+      } else {
+        delete favs[key];
+      }
+      await chrome.storage.local.set({ [KEYS.FAVOURITES]: favs });
+    } catch (err) {
+      if (err && err.message && err.message.includes("QUOTA_BYTES")) {
+        throw new Error("Storage quota exceeded — remove some favourites.");
+      }
+      console.warn("[Scout] setFavourited failed:", err && err.message);
+    }
+  }
+
+  async function clearFavourites() {
+    try {
+      await chrome.storage.local.set({ [KEYS.FAVOURITES]: {} });
+    } catch (err) {
+      console.warn("[Scout] clearFavourites failed:", err && err.message);
+    }
+  }
+
+  return {
+    getSettings, setSettings,
+    getItems, addItem, replaceItem, removeItem, clearItems,
+    getNotes, setNote,
+    getFavourites, isFavourited, setFavourited, clearFavourites,
+  };
 })();

@@ -14,6 +14,7 @@
         <div class="scout-wordmark">Scout</div>
       </div>
       <div class="header-actions">
+        <button id="open-favourites-btn" class="btn-ghost" type="button">Favourites ♥</button>
         <button id="export-json-btn" type="button" class="btn-ghost">Export JSON</button>
         <button id="export-csv-btn" type="button" class="btn-ghost">Export CSV</button>
       </div>
@@ -37,7 +38,13 @@
 
   <section id="detail-view" class="view" hidden>
     <div class="page-body detail-body">
-      <a id="back-link" class="back-link" href="#">← All saves</a>
+      <div class="detail-nav">
+        <a id="back-link" class="back-link" href="#">← All saves</a>
+        <div class="detail-nav__actions">
+          <button type="button" id="prev-video-btn" class="btn-ghost">← Prev</button>
+          <button type="button" id="next-video-btn" class="btn-ghost">Next →</button>
+        </div>
+      </div>
 
       <div class="detail-layout">
         <div class="detail-left">
@@ -93,6 +100,22 @@
 
           <div id="products-list" class="products-list"></div>
         </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="favourites-view" class="view" hidden>
+    <header class="page-header">
+      <div class="page-header__brand"><div class="scout-wordmark">Scout — Favourites</div></div>
+      <div class="header-actions">
+        <a class="btn-ghost" id="fav-back-link" href="#">← All saves</a>
+      </div>
+    </header>
+    <div class="page-body">
+      <div id="favourites-groups"></div>
+      <div id="favourites-empty" class="empty-state" hidden>
+        <div class="empty-state__heading">No favourites yet</div>
+        <div class="empty-state__hint">Tap the heart on any product to save it here.</div>
       </div>
     </div>
   </section>

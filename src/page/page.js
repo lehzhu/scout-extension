@@ -18,6 +18,51 @@
 
   function $(id) { return document.getElementById(id); }
 
+  // Trailing punctuation we should strip from a matched URL (so a URL at end
+  // of a sentence doesn't swallow the period or closing paren).
+  const URL_TRAIL_RE = /[).,;:!?'"\]]+$/;
+  const URL_RE = /\bhttps?:\/\/[^\s<>"'()]+/g;
+
+  /**
+   * Appends alternating text nodes and <a> elements into `el` for any URLs
+   * found in `text`. Preserves newlines via text nodes (the container is
+   * expected to have `white-space: pre-wrap`).
+   */
+  function linkifyInto(el, text) {
+    if (!el) return;
+    try { el.textContent = ""; } catch (_) {}
+    if (typeof text !== "string" || text.length === 0) return;
+
+    URL_RE.lastIndex = 0;
+    let lastIndex = 0;
+    let m;
+    while ((m = URL_RE.exec(text)) !== null) {
+      let url = m[0];
+      let matchStart = m.index;
+      let matchEnd = matchStart + url.length;
+      // Strip trailing punctuation and adjust so it stays as plain text.
+      const trail = url.match(URL_TRAIL_RE);
+      if (trail) {
+        url = url.slice(0, url.length - trail[0].length);
+        matchEnd = matchStart + url.length;
+        URL_RE.lastIndex = matchEnd;
+      }
+      if (matchStart > lastIndex) {
+        el.appendChild(document.createTextNode(text.slice(lastIndex, matchStart)));
+      }
+      const a = document.createElement("a");
+      a.href = url;
+      a.target = "_blank";
+      a.rel = "noopener noreferrer";
+      a.textContent = url;
+      el.appendChild(a);
+      lastIndex = matchEnd;
+    }
+    if (lastIndex < text.length) {
+      el.appendChild(document.createTextNode(text.slice(lastIndex)));
+    }
+  }
+
   // ── State ───────────────────────────────────────────────────────────────
 
   let allItems = [];
@@ -38,12 +83,23 @@
     }
   }
 
+  function getRouteView() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      return params.get("view");
+    } catch (_) {
+      return null;
+    }
+  }
+
   function showListView() {
     try {
       const list = $("list-view");
       const detail = $("detail-view");
+      const favs = $("favourites-view");
       if (list) list.hidden = false;
       if (detail) detail.hidden = true;
+      if (favs) favs.hidden = true;
     } catch (_) {}
   }
 
@@ -51,13 +107,33 @@
     try {
       const list = $("list-view");
       const detail = $("detail-view");
+      const favs = $("favourites-view");
       if (list) list.hidden = true;
       if (detail) detail.hidden = false;
+      if (favs) favs.hidden = true;
+    } catch (_) {}
+  }
+
+  function showFavouritesView() {
+    try {
+      const list = $("list-view");
+      const detail = $("detail-view");
+      const favs = $("favourites-view");
+      if (list) list.hidden = true;
+      if (detail) detail.hidden = true;
+      if (favs) favs.hidden = false;
     } catch (_) {}
   }
 
   function route() {
     try {
+      const view = getRouteView();
+      if (view === "favourites") {
+        currentDetailId = null;
+        showFavouritesView();
+        renderFavourites();
+        return;
+      }
       const id = getRouteId();
       if (!id) {
         currentDetailId = null;
@@ -328,9 +404,65 @@
 
   // ── Detail view ─────────────────────────────────────────────────────────
 
-  function buildProductRow(product) {
+  const HEART_OUTLINE_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+  const HEART_FILLED_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="#F0336C" stroke="#F0336C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>';
+
+  function updateFavButtonUI(btn, on) {
+    if (!btn) return;
+    try {
+      btn.innerHTML = on ? HEART_FILLED_SVG : HEART_OUTLINE_SVG;
+      btn.classList.toggle("product-row__fav--on", !!on);
+      btn.setAttribute("aria-pressed", on ? "true" : "false");
+      btn.title = on ? "Remove from favourites" : "Add to favourites";
+    } catch (_) {}
+  }
+
+  function buildProductRow(product, opts) {
+    const itemId = opts && opts.itemId;
+    const index = opts && typeof opts.index === "number" ? opts.index : -1;
+    const videoMeta = (opts && opts.videoMeta) || null;
+
     const row = document.createElement("div");
     row.className = "product-row";
+
+    // Heart / favourite toggle
+    const fav = document.createElement("button");
+    fav.type = "button";
+    fav.className = "product-row__fav";
+    updateFavButtonUI(fav, false);
+    row.appendChild(fav);
+
+    if (itemId && index >= 0) {
+      // Seed initial state from storage without blocking row render.
+      (async () => {
+        try {
+          const on = await self.Scout.storage.isFavourited(itemId, index);
+          updateFavButtonUI(fav, on);
+        } catch (_) {}
+      })();
+
+      fav.addEventListener("click", async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        try {
+          const currentlyOn = fav.classList.contains("product-row__fav--on");
+          const next = !currentlyOn;
+          // Optimistic UI flip — no full re-render.
+          updateFavButtonUI(fav, next);
+          await self.Scout.storage.setFavourited(itemId, index, videoMeta, product, next);
+        } catch (err) {
+          console.warn("[Scout] favourite toggle failed:", err && err.message);
+          // Revert on failure.
+          try {
+            const on = await self.Scout.storage.isFavourited(itemId, index);
+            updateFavButtonUI(fav, on);
+          } catch (_) {}
+        }
+      });
+    } else {
+      fav.disabled = true;
+      fav.style.visibility = "hidden";
+    }
 
     const name = document.createElement("span");
     name.className = "product-row__name";
@@ -372,14 +504,20 @@
           : products.length + " products";
     }
 
-    const filtered = products.filter((p) => {
+    const videoMeta = item && item.video ? item.video : null;
+
+    // Preserve original product index (used as favourite key) when filtering.
+    const indexed = products.map((p, i) => ({ p, i }));
+    const filtered = indexed.filter(({ p }) => {
       if (!p) return false;
       if (detailActiveCategory === "All") return true;
       return p.category === detailActiveCategory;
     });
 
-    filtered.forEach((p) => {
-      try { list.appendChild(buildProductRow(p)); } catch (_) {}
+    filtered.forEach(({ p, i }) => {
+      try {
+        list.appendChild(buildProductRow(p, { itemId: item.id, index: i, videoMeta }));
+      } catch (_) {}
     });
 
     if (filtered.length === 0 && products.length > 0) {
@@ -487,6 +625,7 @@
       renderDetailFilterBar(item);
       renderProductsList(item);
       renderMetadata(item);
+      updateDetailNavState();
     } catch (err) {
       console.warn("[Scout] renderDetail failed:", err && err.message);
     }
@@ -511,7 +650,7 @@
 
     const longer = text.length > DESC_COLLAPSED_CHARS;
     body.dataset.expanded = "0";
-    body.textContent = longer ? text.slice(0, DESC_COLLAPSED_CHARS) + "…" : text;
+    linkifyInto(body, longer ? text.slice(0, DESC_COLLAPSED_CHARS) + "…" : text);
 
     if (longer) {
       toggle.hidden = false;
@@ -519,11 +658,11 @@
       toggle.onclick = () => {
         const expanded = body.dataset.expanded === "1";
         if (expanded) {
-          body.textContent = text.slice(0, DESC_COLLAPSED_CHARS) + "…";
+          linkifyInto(body, text.slice(0, DESC_COLLAPSED_CHARS) + "…");
           body.dataset.expanded = "0";
           toggle.textContent = "Show more";
         } else {
-          body.textContent = text;
+          linkifyInto(body, text);
           body.dataset.expanded = "1";
           toggle.textContent = "Show less";
         }
@@ -636,6 +775,155 @@
     }
   }
 
+  // ── Favourites view ─────────────────────────────────────────────────────
+
+  async function renderFavourites() {
+    const root = $("favourites-groups");
+    const empty = $("favourites-empty");
+    if (!root) return;
+    try { root.innerHTML = ""; } catch (_) {}
+
+    let favs = {};
+    try { favs = await self.Scout.storage.getFavourites(); }
+    catch (_) { favs = {}; }
+
+    const values = Object.keys(favs).map((k) => favs[k]).filter(Boolean);
+
+    if (values.length === 0) {
+      if (empty) empty.hidden = false;
+      root.hidden = true;
+      return;
+    }
+    if (empty) empty.hidden = true;
+    root.hidden = false;
+
+    // Group by videoId (fallback to itemId if videoId missing).
+    const groups = new Map();
+    for (const f of values) {
+      const key = f.videoId || f.itemId || "unknown";
+      if (!groups.has(key)) groups.set(key, { sample: f, rows: [] });
+      groups.get(key).rows.push(f);
+    }
+
+    // Sort rows inside each group by favedAt (newest first), and groups by
+    // most-recent favedAt.
+    const sortedGroups = [];
+    for (const [, g] of groups) {
+      g.rows.sort((a, b) => (b.favedAt || 0) - (a.favedAt || 0));
+      sortedGroups.push(g);
+    }
+    sortedGroups.sort((a, b) => (b.rows[0].favedAt || 0) - (a.rows[0].favedAt || 0));
+
+    for (const g of sortedGroups) {
+      root.appendChild(buildFavouritesGroup(g));
+    }
+  }
+
+  function buildFavouritesGroup(group) {
+    const s = group.sample;
+    const wrap = document.createElement("div");
+    wrap.className = "favourites-group";
+
+    const head = document.createElement("div");
+    head.className = "favourites-group__head";
+
+    if (s.thumbnailUrl) {
+      const thumb = document.createElement("img");
+      thumb.className = "favourites-group__thumb";
+      thumb.src = s.thumbnailUrl;
+      thumb.alt = "";
+      thumb.referrerPolicy = "no-referrer";
+      head.appendChild(thumb);
+    }
+
+    const meta = document.createElement("div");
+    meta.className = "favourites-group__meta";
+
+    const title = document.createElement("a");
+    title.className = "favourites-group__title";
+    title.textContent = s.videoTitle || "(untitled)";
+    title.href = s.itemId ? "?id=" + encodeURIComponent(s.itemId) : "#";
+    title.addEventListener("click", (e) => {
+      if (!s.itemId) return;
+      e.preventDefault();
+      try {
+        history.pushState({}, "", "?id=" + encodeURIComponent(s.itemId));
+        route();
+      } catch (_) {}
+    });
+    meta.appendChild(title);
+
+    if (s.channel) {
+      const channel = document.createElement("div");
+      channel.className = "favourites-group__channel";
+      channel.textContent = s.channel;
+      meta.appendChild(channel);
+    }
+
+    head.appendChild(meta);
+    wrap.appendChild(head);
+
+    const rows = document.createElement("div");
+    rows.className = "favourites-group__rows";
+    for (const fav of group.rows) {
+      rows.appendChild(buildFavouriteRow(fav));
+    }
+    wrap.appendChild(rows);
+
+    return wrap;
+  }
+
+  function buildFavouriteRow(fav) {
+    const row = document.createElement("div");
+    row.className = "product-row";
+
+    // Un-favourite button (re-uses heart styling, filled state)
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "product-row__fav product-row__fav--on";
+    btn.title = "Un-favourite";
+    btn.innerHTML = HEART_FILLED_SVG;
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        await self.Scout.storage.setFavourited(fav.itemId, fav.productIndex, null, null, false);
+        row.remove();
+        // If the parent group is now empty, refresh to hide it.
+        const parentGroup = row.closest(".favourites-group");
+        if (parentGroup && !parentGroup.querySelector(".product-row")) {
+          renderFavourites();
+        }
+      } catch (err) {
+        console.warn("[Scout] un-favourite failed:", err && err.message);
+      }
+    });
+    row.appendChild(btn);
+
+    const p = fav.product || {};
+    const name = document.createElement("span");
+    name.className = "product-row__name";
+    name.textContent = p.name || "(unnamed)";
+    row.appendChild(name);
+
+    if (p.brand) {
+      const brand = document.createElement("span");
+      brand.className = "product-row__brand";
+      brand.textContent = p.brand;
+      row.appendChild(brand);
+    }
+
+    const buy = document.createElement("a");
+    buy.className = "product-row__buy";
+    buy.href = formatSearchUrl(p.searchQuery || p.name || "");
+    buy.target = "_blank";
+    buy.rel = "noopener noreferrer";
+    buy.textContent = "Buy \u2197";
+    row.appendChild(buy);
+
+    return row;
+  }
+
   // ── Wiring ──────────────────────────────────────────────────────────────
 
   function wireListControls() {
@@ -663,19 +951,76 @@
 
     const exportCsvBtn = $("export-csv-btn");
     if (exportCsvBtn) exportCsvBtn.addEventListener("click", exportCsv);
-  }
 
-  function wireDetailControls() {
-    const back = $("back-link");
-    if (back) {
-      back.addEventListener("click", (e) => {
+    const openFavs = $("open-favourites-btn");
+    if (openFavs) {
+      openFavs.addEventListener("click", (e) => {
         e.preventDefault();
         try {
-          history.pushState({}, "", window.location.pathname);
+          history.pushState({}, "", "?view=favourites");
           route();
         } catch (_) {}
       });
     }
+  }
+
+  function goToAllSaves(e) {
+    if (e) e.preventDefault();
+    try {
+      history.pushState({}, "", window.location.pathname);
+      route();
+    } catch (_) {}
+  }
+
+  function navigateToDetailByOffset(offset) {
+    try {
+      if (!Array.isArray(allItems) || allItems.length === 0) return;
+      if (!currentDetailId) return;
+      const idx = allItems.findIndex((i) => i && i.id === currentDetailId);
+      if (idx === -1) return;
+      const n = allItems.length;
+      const nextIdx = ((idx + offset) % n + n) % n;
+      const nextItem = allItems[nextIdx];
+      if (!nextItem || !nextItem.id) return;
+      history.pushState({}, "", "?id=" + encodeURIComponent(nextItem.id));
+      route();
+    } catch (err) {
+      console.warn("[Scout] navigateToDetailByOffset failed:", err && err.message);
+    }
+  }
+
+  function wireDetailControls() {
+    const back = $("back-link");
+    if (back) back.addEventListener("click", goToAllSaves);
+
+    const nextBtn = $("next-video-btn");
+    if (nextBtn) {
+      nextBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        navigateToDetailByOffset(1);
+      });
+    }
+
+    const prevBtn = $("prev-video-btn");
+    if (prevBtn) {
+      prevBtn.addEventListener("click", (e) => {
+        e.preventDefault();
+        navigateToDetailByOffset(-1);
+      });
+    }
+
+    const favBack = $("fav-back-link");
+    if (favBack) favBack.addEventListener("click", goToAllSaves);
+  }
+
+  function updateDetailNavState() {
+    try {
+      const nextBtn = $("next-video-btn");
+      const prevBtn = $("prev-video-btn");
+      const single = !Array.isArray(allItems) || allItems.length <= 1;
+      if (nextBtn) nextBtn.disabled = single;
+      if (prevBtn) prevBtn.disabled = single;
+    } catch (_) {}
   }
 
   // ── Storage listener ────────────────────────────────────────────────────
@@ -687,6 +1032,15 @@
           if (area !== "local") return;
           if (changes["scout.items"]) {
             reloadAndRoute();
+            return;
+          }
+          if (changes["scout.favourites"]) {
+            // Only re-render the favourites view if that's what the user is
+            // looking at. Heart buttons in the detail view are updated
+            // optimistically and don't need a re-render.
+            try {
+              if (getRouteView() === "favourites") renderFavourites();
+            } catch (_) {}
             return;
           }
           if (changes["scout.notes"] && currentDetailId) {
