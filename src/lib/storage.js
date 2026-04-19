@@ -31,11 +31,7 @@ self.Scout.storage = (() => {
     const defaults = {
       provider: "none",
       geminiApiKey: null,
-      openrouterApiKey: null,
-      openaiApiKey: null,
       geminiModel: null,
-      openrouterModel: null,
-      openaiModel: null,
     };
     const s = Object.assign({}, defaults, raw && typeof raw === "object" ? raw : {});
     // Backward compat: infer provider from legacy geminiApiKey field

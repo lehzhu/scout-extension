@@ -57,25 +57,11 @@
       modelField: null, defaultModel: null, keyHintHtml: null,
     },
     gemini: {
-      providerHint: "Uses Google Gemini for structured JSON product extraction.",
+      providerHint: "Uses Google Gemini for vision-based product extraction across the full video.",
       keyLabel: "Gemini API Key", keyPlaceholder: "AIza\u2026",
       keyField: "geminiApiKey", modelField: "geminiModel",
       defaultModel: "gemini-2.5-flash",
       keyHintHtml: 'Get a free key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.',
-    },
-    openrouter: {
-      providerHint: "OpenAI-compatible API with free and paid open-weight models. OpenRouter keys only — not OpenAI keys.",
-      keyLabel: "OpenRouter API Key", keyPlaceholder: "sk-or-\u2026",
-      keyField: "openrouterApiKey", modelField: "openrouterModel",
-      defaultModel: "meta-llama/llama-3.1-8b-instruct:free",
-      keyHintHtml: 'Get a key at <a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer">openrouter.ai/keys</a>. Free models available.',
-    },
-    openai: {
-      providerHint: "Uses OpenAI directly. gpt-4o-mini is the cheapest option.",
-      keyLabel: "OpenAI API Key", keyPlaceholder: "sk-\u2026",
-      keyField: "openaiApiKey", modelField: "openaiModel",
-      defaultModel: "gpt-4o-mini",
-      keyHintHtml: 'Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">platform.openai.com/api-keys</a>.',
     },
   };
 
@@ -471,7 +457,7 @@
             <path d="M10 13h8M10 17h5" stroke="currentColor"
               stroke-width="1.5" stroke-linecap="round"/>
           </svg>
-          <div class="empty-state__heading">Your shopping list is empty</div>
+          <div class="empty-state__heading">No saves yet</div>
           <div class="empty-state__hint">${escapeHtml(emptyHint)}</div>
         </div>`;
       return;

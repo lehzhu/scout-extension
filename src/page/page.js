@@ -304,47 +304,63 @@
 
   // ── Export (from popup.js) ──────────────────────────────────────────────
 
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function exportJson() {
     try {
-      const items = allItems;
-      const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `scout-export-${new Date().toISOString().slice(0, 10)}.json`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (_) {}
+      const blob = new Blob([JSON.stringify(allItems, null, 2)], { type: "application/json" });
+      triggerDownload(blob, `scout-export-${new Date().toISOString().slice(0, 10)}.json`);
+    } catch (err) {
+      console.warn("[Scout] JSON export failed:", err && err.message);
+    }
+  }
+
+  function csvCell(v) {
+    return `"${String(v == null ? "" : v).replace(/"/g, '""')}"`;
   }
 
   function exportCsv() {
     try {
-      const items = allItems;
-      const rows = [[
+      const header = [
         "video_title", "channel", "product_name", "brand", "category",
         "search_query", "confidence", "buy_link", "video_url",
-      ]];
-      items.forEach((item) => {
-        const v = item.video || {};
-        (Array.isArray(item.products) ? item.products : []).forEach((p) => {
+      ].map(csvCell);
+      const rows = [header];
+
+      (Array.isArray(allItems) ? allItems : []).forEach((item) => {
+        const v = (item && item.video) || {};
+        const products = Array.isArray(item && item.products) ? item.products : [];
+        products.forEach((p) => {
           rows.push([
-            v.title || "", v.channel || "",
-            p.name || "", p.brand || "", p.category || "",
-            p.searchQuery || "", p.confidence ?? "",
+            v.title, v.channel,
+            p.name, p.brand, p.category,
+            p.searchQuery, p.confidence,
             formatSearchUrl(p.searchQuery || p.name || ""),
-            v.url || "",
-          ].map((c) => `"${String(c).replace(/"/g, '""')}"`));
+            v.url,
+          ].map(csvCell));
         });
       });
-      const csv = rows.map((r) => r.join(",")).join("\n");
-      const blob = new Blob([csv], { type: "text/csv" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `scout-export-${new Date().toISOString().slice(0, 10)}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (_) {}
+
+      if (rows.length === 1) {
+        console.warn("[Scout] CSV export: no products to export");
+      }
+
+      const csv = "\uFEFF" + rows.map((r) => r.join(",")).join("\r\n");
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+      triggerDownload(blob, `scout-export-${new Date().toISOString().slice(0, 10)}.csv`);
+    } catch (err) {
+      console.warn("[Scout] CSV export failed:", err && err.message);
+    }
   }
 
   // ── Detail view ─────────────────────────────────────────────────────────

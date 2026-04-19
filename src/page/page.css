@@ -305,6 +305,8 @@ body {
   text-align: center;
 }
 
+.empty-state[hidden] { display: none; }
+
 .empty-state__heading {
   font-size: 18px;
   font-weight: 600;

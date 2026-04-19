@@ -4,14 +4,10 @@ self.Scout = self.Scout || {};
 self.Scout.parser = (() => {
   const MAX_TRANSCRIPT_CHARS = 30000;
 
-  const GEMINI_BASE     = "https://generativelanguage.googleapis.com/v1beta/models";
-  const OPENROUTER_BASE = "https://openrouter.ai/api/v1";
-  const OPENAI_BASE     = "https://api.openai.com/v1";
+  const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 
   const DEFAULT_MODELS = {
-    gemini:      "gemini-2.5-flash",
-    openrouter:  "meta-llama/llama-3.1-8b-instruct:free",
-    openai:      "gpt-4o-mini",
+    gemini: "gemini-2.5-flash",
   };
 
   const VALID_CATEGORIES = new Set([
@@ -532,76 +528,6 @@ ${comments}${imagesNote}`;
     return parseAndCoerce(raw);
   }
 
-  // ─── OAI-spec client (OpenRouter + OpenAI) ────────────────────────────────
-
-  async function extractWithOAI({ videoMeta, transcriptText, apiKey, model, baseUrl, imageParts, storyboard }) {
-    const userContent = buildUserContent({
-      title: videoMeta.title, channel: videoMeta.channel,
-      description: videoMeta.description, transcriptText,
-      topComments: videoMeta.topComments,
-      storyboard,
-    });
-
-    // OpenAI accepts multimodal content arrays with image_url parts.
-    // OpenRouter's free models often don't — keep text-only there.
-    const useImages = baseUrl === OPENAI_BASE && Array.isArray(imageParts) && imageParts.length > 0;
-    const userMessageContent = useImages
-      ? [
-          { type: "text", text: userContent },
-          ...imageParts.map((p) => ({
-            type: "image_url",
-            image_url: { url: `data:${p.mimeType};base64,${p.data}` },
-          })),
-        ]
-      : userContent;
-
-    const controller = new AbortController();
-    const timeoutId  = setTimeout(() => controller.abort(), 45000);
-
-    const headers = {
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${apiKey}`,
-    };
-    if (baseUrl === OPENROUTER_BASE) {
-      headers["HTTP-Referer"] = "https://github.com/lehzhu/scout-extension";
-      headers["X-Title"]      = "Scout Extension";
-    }
-
-    let res;
-    try {
-      res = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: EXTRACTION_RULES },
-            { role: "user",   content: userMessageContent },
-          ],
-          temperature: 0.3,
-          max_tokens: 4096,
-        }),
-        signal: controller.signal,
-      });
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (err.name === "AbortError") throw new Error("Request timed out — try again.");
-      throw err;
-    }
-    clearTimeout(timeoutId);
-
-    if (!res.ok) {
-      let msg = `API error ${res.status}`;
-      try { const b = await res.json(); if (b?.error?.message) msg += `: ${b.error.message}`; } catch (_) {}
-      throw new Error(msg);
-    }
-
-    const data = await res.json();
-    const raw  = data?.choices?.[0]?.message?.content;
-    if (!raw) throw new Error("Empty response from API");
-    return parseAndCoerce(raw);
-  }
-
   // ─── Router ───────────────────────────────────────────────────────────────
 
   /**
@@ -611,35 +537,12 @@ ${comments}${imagesNote}`;
   async function extractProducts({ videoMeta, transcriptText, settings }) {
     const provider = settings?.provider || "none";
 
-    // Only fetch images when the provider can actually use them.
-    const visionCapable = provider === "gemini" || provider === "openai";
-    const { parts: imageParts, storyboard } = visionCapable
-      ? await collectImageParts(videoMeta)
-      : { parts: [], storyboard: null };
-
     if (provider === "gemini") {
       if (!settings.geminiApiKey) throw new Error("Gemini API key not set — add it in Settings.");
+      const { parts: imageParts, storyboard } = await collectImageParts(videoMeta);
       const model = settings.geminiModel || DEFAULT_MODELS.gemini;
       return extractWithGemini({
         videoMeta, transcriptText, apiKey: settings.geminiApiKey, model, imageParts, storyboard,
-      });
-    }
-
-    if (provider === "openrouter") {
-      if (!settings.openrouterApiKey) throw new Error("OpenRouter API key not set — add it in Settings.");
-      const model = settings.openrouterModel || DEFAULT_MODELS.openrouter;
-      return extractWithOAI({
-        videoMeta, transcriptText, apiKey: settings.openrouterApiKey, model,
-        baseUrl: OPENROUTER_BASE,
-      });
-    }
-
-    if (provider === "openai") {
-      if (!settings.openaiApiKey) throw new Error("OpenAI API key not set — add it in Settings.");
-      const model = settings.openaiModel || DEFAULT_MODELS.openai;
-      return extractWithOAI({
-        videoMeta, transcriptText, apiKey: settings.openaiApiKey, model,
-        baseUrl: OPENAI_BASE, imageParts, storyboard,
       });
     }
 
