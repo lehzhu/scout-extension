@@ -180,19 +180,35 @@
 
     // ─── Button injection ────────────────────────────────────────────────────
 
+    let _injecting = false;
+
     async function injectButton() {
+      if (_injecting) return;
       if (document.getElementById("scout-save-btn")) return; // already present
 
-      // Wait for the title area to exist (YouTube renders async)
-      const anchor =
-        (await waitForElement("#above-the-fold #title")) ||
-        (await waitForElement("#above-the-fold", 3000));
+      _injecting = true;
+      try {
+        // Wait for the title area to exist (YouTube renders async)
+        const anchor =
+          (await waitForElement("#above-the-fold #title")) ||
+          (await waitForElement("#above-the-fold", 3000));
 
-      if (!anchor) {
-        warnOnce("no-anchor", "could not find title anchor — button not injected");
-        return; // silently exit — no button, no crash
+        if (!anchor) {
+          warnOnce("no-anchor", "could not find title anchor — button not injected");
+          return; // silently exit — no button, no crash
+        }
+
+        // Re-check after the await — another yt-navigate-finish may have
+        // already injected while we were waiting.
+        if (document.getElementById("scout-save-btn")) return;
+
+        await _doInject(anchor);
+      } finally {
+        _injecting = false;
       }
+    }
 
+    async function _doInject(anchor) {
       const btn = createButton();
 
       // Listen for progress messages from background
